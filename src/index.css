@@ -1,0 +1,150 @@
+@import "tailwindcss";
+
+/* === Design Tokens (색상 명세표) === */
+:root {
+  --c-bg-top: #FFFFFF;             /* 배경 상단 */
+  --c-bg-bottom: #FAFAFA;          /* 배경 하단 gradient */
+  --c-header-bg: #FFFFFF;          /* 헤더 배경 */
+  --c-header-border: #E0E0E0;      /* 헤더 하단 경계선 */
+
+  --c-brand: #2F80ED;              /* 로고/브랜드 블루 */
+  --c-accent: #EF5350;             /* 강조 텍스트 코랄 */
+
+  --c-text: #1A1A1A;               /* 기본 텍스트 */
+  --c-text-sub: #666666;           /* 보조 텍스트 */
+
+  --c-card: #F5F7FA;               /* 카드 배경 */
+  --c-card-border: #D0D0D0;        /* 카드 테두리 */
+
+  --c-cta: #00A94C;                /* CTA 버튼 배경 */
+  --c-cta-hover: #009241;          /* CTA 버튼 hover */
+
+  --c-outline: #2F80ED;            /* 서브 버튼 테두리/글자 */
+  --c-outline-hover-bg: #E3F2FD;   /* 서브 버튼 hover 배경 */
+
+  --c-footer: #F0F4F8;             /* 푸터 배경 */
+}
+
+/* === Global Base === */
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    color: var(--c-text);
+    background: linear-gradient(180deg, var(--c-bg-top) 0%, var(--c-bg-bottom) 100%);
+  }
+  a { @apply underline-offset-2; }
+}
+
+/* === Reusable UI Utilities === */
+@layer components {
+  /* Header */
+  .app-header {
+    @apply sticky top-0 z-40;
+    background-color: var(--c-header-bg);
+    backdrop-filter: saturate(180%) blur(8px);
+    border-bottom: 1px solid var(--c-header-border);
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium transition;
+  }
+  .btn-primary {
+    background: var(--c-cta);
+    color: #fff;
+  }
+  .btn-primary:hover { background: var(--c-cta-hover); }
+
+  .btn-outline {
+    color: var(--c-outline);
+    border: 1px solid var(--c-outline);
+    background: transparent;
+  }
+  .btn-outline:hover {
+    background: var(--c-outline-hover-bg);
+  }
+
+  /* Cards */
+  .card {
+    background: var(--c-card);
+    border: 1px solid var(--c-card-border);
+    @apply rounded-xl p-4 shadow-sm;
+  }
+
+  /* Typography helpers */
+  .brand { color: var(--c-brand); }
+  .accent { color: var(--c-accent); }
+  .muted { color: var(--c-text-sub); }
+}
+/* ==== Home 전용 보강 유틸 ==== */
+@layer components {
+  /* 섹션 기본 여백 */
+  .section { @apply grid gap-4; }
+
+  /* Glass 효과 카드 */
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,0.66), rgba(255,255,255,0.9));
+    backdrop-filter: blur(8px) saturate(120%);
+  }
+
+  /* 칩 스타일 */
+  .chip {
+    @apply rounded-full px-3 py-1 text-xs;
+    background: #fff;
+    border: 1px solid var(--c-card-border);
+    color: var(--c-text-sub);
+  }
+
+  /* 살짝 떠오르는 효과 */
+  .hover\:lift {
+    transition: transform .2s ease, box-shadow .2s ease;
+  }
+  .hover\:lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(25, 55, 109, 0.08);
+  }
+}
+@layer components {
+  .link { @apply no-underline text-[var(--c-brand,#2563eb)] hover:opacity-80 text-sm; }
+
+  /* 소개 스트립 */
+  .intro-strip {
+    background: linear-gradient(180deg, #ffffff, #f7fbff);
+  }
+
+  /* KPI (통계 수치) */
+  .kpi__num { @apply text-3xl font-extrabold; color: var(--c-brand,#2563eb); }
+  .kpi__label { @apply mt-1 text-xs; color:#6b7280; }
+
+  /* 배지/칩 */
+  .badge {
+    @apply rounded-full border px-3 py-1 text-xs;
+    border-color: var(--c-card-border,#e6eaf0);
+    color:#475569;
+    background:#fff;
+  }
+
+  /* Glass 효과 카드 & 호버 */
+  .glass {
+    background: linear-gradient(180deg, rgba(255,255,255,0.66), rgba(255,255,255,0.92));
+    backdrop-filter: blur(8px) saturate(120%);
+  }
+  .hover\:lift { transition: transform .2s ease, box-shadow .2s ease; }
+  .hover\:lift:hover { transform: translateY(-2px); box-shadow: 0 10px 32px rgba(15,23,42,.08); }
+
+  /* 이미지 슬라이더 컨트롤(이미지 전용) */
+  .caro-arrow { @apply absolute top-1/2 -translate-y-1/2 z-10 h-8 w-8 rounded-full bg-white/90 text-[22px] leading-[30px] text-center shadow-md; }
+  .caro-arrow:hover { background:#fff; }
+  .caro-dot { @apply h-2 w-2 rounded-full bg-black/25; }
+  .caro-dot--active { @apply bg-black/70; }
+
+  /* 로딩 스켈레톤 */
+  .skeleton { @apply animate-pulse rounded bg-slate-200/70; }
+}
+
+/* 톤 다운된 기본 컬러 변수 (없다면 기본값으로 동작) */
+:root { --c-bg: #f7f9fc; --c-card-border: #e6eaf0; --c-text: #0f172a; --c-brand: #2563eb; }
+.muted { color:#6b7280; }
+.brand { color:var(--c-brand); }
