@@ -24,6 +24,9 @@ import ProgramDetail from "@/pages/programs/ProgramDetail";
 
 /* 마이페이지 */
 import MyPage from "@/pages/my/MyPage";
+import MyProfileEdit from "@/pages/my/MyProfileEdit"
+import MyResumeEdit from "@/pages/my/MyResumeEdit"
+import HostReservations from "@/pages/my/HostReservations"
 
 /* AI 추천 */
 import AiRecommend from "@/pages/ai/AiRecommend";
@@ -66,6 +69,9 @@ export default function App() {
 
                 {/* 마이 */}
                 <Route path="/my" element={<MyPage />} />
+                <Route path="/my/profile" element={<MyProfileEdit />} />
+                <Route path="/my/resume" element={<MyResumeEdit />} />
+                <Route path="/my/reservations" element={<HostReservations />} />
 
                 {/* AI 추천 */}
                 <Route path="/ai" element={<AiRecommend />} />

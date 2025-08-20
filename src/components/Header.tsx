@@ -15,7 +15,6 @@ export default function Header() {
         {/* 로고 */}
         <Link to="/" className="flex items-center gap-2 no-underline">
           <img src="/logo.png" alt="이음 로고" className="h-8 w-8" />
-          <span className="hidden text-lg font-extrabold text-[var(--c-brand)] sm:block">Eum</span>
         </Link>
 
         {/* 데스크탑 GNB */}

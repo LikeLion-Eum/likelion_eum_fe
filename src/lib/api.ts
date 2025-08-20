@@ -1,12 +1,12 @@
 import axios from "axios";
 
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE, // https://<...>.ngrok-free.app/api
+  baseURL: import.meta.env.VITE_API_BASE,
   withCredentials: false,
   headers: {
     "Content-Type": "application/json",
     "Accept": "application/json",
-    "ngrok-skip-browser-warning": "true",  // ✅ ngrok 인터스티셜 우회
+    "ngrok-skip-browser-warning": "true", 
   },
 });
 

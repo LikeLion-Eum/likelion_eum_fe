@@ -1,6 +1,6 @@
 import api from "@/lib/api";
 
-/** 생성 */
+/** 생성 (앱 내부 폼 타입) */
 export type CreateSharedOfficeReq = {
   name: string;
   location: string;
@@ -8,33 +8,110 @@ export type CreateSharedOfficeReq = {
   size: number;
   maxCount: number;
   description?: string;
-  hostRepresentativeName: string;
-  businessRegistrationNumber: string; // 하이픈 유/무 허용
-  hostContact: string;                 // 하이픈 유/무 허용
-};
 
-export type SharedOffice = {
-  id: number;
-  name: string;
-  location: string;
-  roomCount: number;
-  size: number;
-  maxCount: number;
-  description?: string;
-  // 호스트 정보는 상세/내부 용도일 수 있어 optional
   hostRepresentativeName?: string;
   businessRegistrationNumber?: string;
   hostContact?: string;
-  // 카드 노출용 필드(백엔드에서 채워줄 수 있음)
-  thumbnailUrl?: string | null;
-  pricePerMonth?: number | null;
-  distanceNote?: string | null; // "강남역 도보 2분" 같은 문구 (추가 예정)
 };
 
-/** 1) 공간 생성: POST /api/shared-offices */
+export type SharedOffice = {  
+  name: string;
+  description?: string;            // 선택
+  roomCount: number;               // 방 개수
+  size: number;                    // 면적(예: 200)
+  location: string;                // "충남 아산시 중앙로 123"
+  maxCount: number;                // 최대 수용 인원
+
+  // 호스트(사업자) 정보
+  hostBusinessName: string;        // "주식회사 샘플"
+  hostRepresentativeName: string;  // "홍길동"
+  hostAddress: string;             // "충남 아산시 ..."
+  businessRegistrationNumber: string; // "123-45-67890" 또는 "1234567890"
+  hostContact: string;             // "01012345678" 또는 "010-1234-5678"
+
+
+  // 카드 노출용 (없을 수 있음)
+  thumbnailUrl?: string | null;
+  pricePerMonth?: number | null;
+  distanceNote?: string | null; // "강남역 도보 2분" 같은 문구
+};
+
+/** 서버 생성 API가 허용하는 필드만 전송하기 위한 내부 타입 */
+type CreateSharedOfficeApiReq = {
+  name: string;
+  description?: string;
+  roomCount: number;
+  size: number;
+  location: string;
+  maxCount: number;
+};
+
+/** 1) 공간 생성: POST /api/shared-offices
+ * - 백엔드 스펙: { name, description?, roomCount, size, location, maxCount }
+ * - 폼에서 받은 payload에서 허용된 필드만 추려서 보냄
+ */
 export async function createSharedOffice(payload: CreateSharedOfficeReq) {
-  const { data } = await api.post<SharedOffice>("/shared-offices", payload);
-  return data;
+  // 1) 안전 보정: 문자열 trim + 정수 변환
+  const roomCount = Number.parseInt(String(payload.roomCount), 10);
+  const size = Number.parseInt(String(payload.size), 10);
+  const maxCount = Number.parseInt(String(payload.maxCount), 10);
+
+  const body = {
+    name: String(payload.name ?? "").trim(),
+    description: payload.description?.toString().trim() || undefined,
+    roomCount,
+    size,
+    location: String(payload.location ?? "").trim(),
+    maxCount,
+  } as Record<string, unknown>;
+
+  // 2) undefined 필드 제거(서버가 undefined를 싫어할 수 있음)
+  Object.keys(body).forEach((k) => {
+    if (body[k] === undefined) delete body[k];
+  });
+
+  // 3) 클라이언트측 필수 검증(서버 400 대신 미리 걸러줌)
+  const lacks: string[] = [];
+  if (!body.name) lacks.push("name");
+  if (!body.location) lacks.push("location");
+  if (!Number.isFinite(roomCount) || roomCount <= 0) lacks.push("roomCount");
+  if (!Number.isFinite(size) || size <= 0) lacks.push("size");
+  if (!Number.isFinite(maxCount) || maxCount <= 0) lacks.push("maxCount");
+  if (lacks.length) {
+    // 개발 중 원인 확인을 쉽게 하기 위해 에러 throw
+    throw new Error(`필수값 누락/형식 오류: ${lacks.join(", ")}`);
+  }
+
+  try {
+    // 4) 호출 직전 페이로드 확인(개발 단계에서만 남겨두고, 운영에선 제거)
+    // eslint-disable-next-line no-console
+    console.debug("[createSharedOffice] request body =", body);
+
+    const { data } = await api.post<SharedOffice>("/shared-offices", body, {
+      headers: { "Content-Type": "application/json" },
+    });
+    return data;
+  } catch (err: any) {
+  const status = err?.response?.status;
+  const data = err?.response?.data;
+  const serverMsg =
+    data?.error ||
+    data?.message ||
+    (typeof data === "string" ? data : "") ||
+    (status ? `HTTP ${status}` : "") ||
+    err?.message ||
+    "서버 오류가 발생했습니다.";
+
+  // 상세 로그
+  // eslint-disable-next-line no-console
+  console.error("[createSharedOffice] failed:", serverMsg, {
+    status,
+    data,
+    url: "/shared-offices",
+  });
+
+  throw new Error(serverMsg);
+}
 }
 
 /** 2) 공간 목록: GET /api/shared-offices  (+ 필터/페이징 확장 여지) */
