@@ -32,6 +32,7 @@ export default function SpaceForm() {
     hostRepresentativeName: "",
     businessRegistrationNumber: "",
     hostContact: "",
+    pricePerMonth: undefined,
   });
 
   // 사진 업로드 상태
@@ -194,6 +195,23 @@ export default function SpaceForm() {
                 onChange={(e) => set("maxCount", Number(e.target.value))}
               />
             </label>
+
+            <label className="grid gap-1 text-sm">
+              <span className={labelCls}>월 요금(원/월)</span>
+              <input
+                type="number"
+                min={0}
+                step={10000}
+                className={inputCls}
+                placeholder="예) 500000"
+                value={form.pricePerMonth ?? ""}
+                onChange={(e) =>
+                set("pricePerMonth", e.target.value === "" ? undefined : Number(e.target.value))}
+              />
+                <span className="muted mt-1 text-xs">
+                  (선택) 세금·관리비 포함 여부는 소개에 기재해 주세요
+                </span>
+              </label>
 
             <div className="md:col-span-2">
               <label className="grid gap-1 text-sm">

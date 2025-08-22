@@ -12,9 +12,11 @@ export type CreateSharedOfficeReq = {
   hostRepresentativeName?: string;
   businessRegistrationNumber?: string;
   hostContact?: string;
+  pricePerMonth?: number | null;
 };
 
 export type SharedOffice = {  
+  id: number;
   name: string;
   description?: string;            // 선택
   roomCount: number;               // 방 개수
@@ -44,6 +46,10 @@ type CreateSharedOfficeApiReq = {
   size: number;
   location: string;
   maxCount: number;
+  hostRepresentativeName: string;
+  businessRegistrationNumber: string;
+  hostContact: string;
+  pricePerMonth?: number | null;
 };
 
 /** 1) 공간 생성: POST /api/shared-offices
@@ -56,6 +62,15 @@ export async function createSharedOffice(payload: CreateSharedOfficeReq) {
   const size = Number.parseInt(String(payload.size), 10);
   const maxCount = Number.parseInt(String(payload.maxCount), 10);
 
+  const hostRepresentativeName = String(payload.hostRepresentativeName ?? "").trim();
+  const businessRegistrationNumber = String(payload.businessRegistrationNumber ?? "").trim();
+  const hostContact = String(payload.hostContact ?? "").trim();
+
+  const pricePerMonth =
+    payload.pricePerMonth === null || payload.pricePerMonth === undefined
+      ? undefined
+      : Number.parseInt(String(payload.pricePerMonth), 10);
+
   const body = {
     name: String(payload.name ?? "").trim(),
     description: payload.description?.toString().trim() || undefined,
@@ -63,6 +78,10 @@ export async function createSharedOffice(payload: CreateSharedOfficeReq) {
     size,
     location: String(payload.location ?? "").trim(),
     maxCount,
+    hostRepresentativeName,
+    businessRegistrationNumber,
+    hostContact,
+    pricePerMonth
   } as Record<string, unknown>;
 
   // 2) undefined 필드 제거(서버가 undefined를 싫어할 수 있음)
