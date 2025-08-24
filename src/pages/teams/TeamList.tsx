@@ -21,6 +21,17 @@ type Recruitment = {
 type State = "idle" | "loading" | "ok" | "error";
 const PAGE_SIZE = 12;
 
+/* ===== 프론트 전용 상태(localStorage) 읽기 ===== */
+const statusKey = (id: number | string) => `recruitment-status:${id}`;
+const readLocalClosed = (id: number | string): boolean | null => {
+  try {
+    const v = localStorage.getItem(statusKey(id));
+    if (v === "closed") return true;
+    if (v === "open") return false;
+  } catch {}
+  return null;
+};
+
 export default function TeamList() {
   const [state, setState] = useState<State>("idle");
   const [items, setItems] = useState<Recruitment[]>([]);
@@ -75,6 +86,12 @@ export default function TeamList() {
   const paged = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   useEffect(() => setPage(1), [keyword, region, career, minYears]);
+
+  /* 카드에서 사용할 표시 상태: localStorage 오버라이드 > 서버 isClosed */
+  const getDisplayClosed = (it: Recruitment) => {
+    const local = readLocalClosed(it.id);
+    return (local ?? it.isClosed) ?? false;
+  };
 
   return (
     <section className="grid gap-6">
@@ -164,27 +181,44 @@ export default function TeamList() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {paged.map((p) => (
-                <article
-                  key={p.id}
-                  className="rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md"
-                >
-                  <Link to={`/teams/${p.id}`} className="no-underline">
-                    <h3 className="mb-2 line-clamp-2 text-base font-semibold text-[var(--c-text)] hover:brand">
-                      {p.title}
-                    </h3>
-                  </Link>
-                  <div className="flex flex-wrap items-center gap-2 text-xs muted">
-                    {p.location && <span>📍 {p.location}</span>}
-                    {p.position && <span>💼 {p.position}</span>}
-                    {p.career && (
-                      <span className="rounded-md bg-[var(--c-card)] px-2 py-0.5">
-                        {p.career}{p.career.includes("경력") && (p as any).expYearsMin ? `·${(p as any).expYearsMin}+년` : ""}
-                      </span>
-                    )}
-                  </div>
-                </article>
-              ))}
+              {paged.map((p) => {
+                const closed = getDisplayClosed(p);
+                return (
+                  <article
+                    key={p.id}
+                    className={`relative rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md ${
+                      closed ? "opacity-70" : ""
+                    }`}
+                  >
+                    {/* 상태 뱃지 */}
+                    <div
+                      className={`absolute right-4 top-4 rounded-full px-2 py-0.5 text-xs text-white ${
+                        closed ? "bg-gray-500" : "bg-black/80"
+                      }`}
+                      aria-label={closed ? "마감" : "모집중"}
+                    >
+                      {closed ? "마감" : "모집중"}
+                    </div>
+
+                    <Link to={`/teams/${p.id}`} className="no-underline">
+                      <h3 className="mb-2 line-clamp-2 pr-14 text-base font-semibold text-[var(--c-text)] hover:brand">
+                        {p.title}
+                      </h3>
+                    </Link>
+
+                    <div className="flex flex-wrap items-center gap-2 text-xs muted">
+                      {p.location && <span>📍 {p.location}</span>}
+                      {p.position && <span>💼 {p.position}</span>}
+                      {p.career && (
+                        <span className="rounded-md bg-[var(--c-card)] px-2 py-0.5">
+                          {p.career}
+                          {p.career.includes("경력") && (p as any).expYearsMin ? `·${(p as any).expYearsMin}+년` : ""}
+                        </span>
+                      )}
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           )}
 

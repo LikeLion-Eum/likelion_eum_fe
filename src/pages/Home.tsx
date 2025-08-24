@@ -2,7 +2,6 @@ import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import ImageSlider from "@/components/ImageSlider";
 import Button from "@/components/Button";
-import AdBanner from "@/components/AdBanner";
 import api from "@/lib/api";
 import { toList } from "@/lib/list";
 
@@ -16,16 +15,29 @@ type Post = {
   expType?: string;
   minYears?: number | null;
   skills?: string[];
-  deadline?: string | null;
+  deadline?: string | null;   // YYYY-MM-DD 권장
   alwaysOpen?: boolean;
+  content?: string;
+  /** ▼ API가 내려주면 사용 */
+  isClosed?: boolean;
 };
 
 type Program = {
   id: string;
   title: string;
   provider?: string;
-  deadline?: string | null;
+  deadline?: string | null;   // YYYY-MM-DD 권장
   deadlineAt?: string;
+  applyUrl?: string | null;   // 외부 신청 링크
+};
+
+/* ---------- 텍스트 유틸 ---------- */
+const stripHtml = (s?: string) =>
+  (s ?? "").replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+
+const excerpt = (s?: string, max = 120) => {
+  const t = stripHtml(s);
+  return t.length > max ? t.slice(0, max) + "…" : t;
 };
 
 /* ---------- 폴백(데모) 데이터 ---------- */
@@ -36,9 +48,9 @@ const FALLBACK_POSTS: Post[] = [
 ];
 
 const FALLBACK_PROGRAMS: Program[] = [
-  { id: "p1", title: "[서울] 청년창업 지원금 2차", provider: "서울시", deadlineAt: "D-3" },
-  { id: "p2", title: "스타트업 IR 경진대회", provider: "중기부", deadlineAt: "D-5" },
-  { id: "p3", title: "예비창업패키지 추가 모집", provider: "창진원", deadlineAt: "D-10" },
+  { id: "p1", title: "[서울] 청년창업 지원금 2차", provider: "서울시", deadlineAt: "D-3", applyUrl: "https://example.com/a" },
+  { id: "p2", title: "스타트업 IR 경진대회", provider: "중기부", deadlineAt: "D-5", applyUrl: "https://example.com/b" },
+  { id: "p3", title: "예비창업패키지 추가 모집", provider: "창진원", deadlineAt: "D-10", applyUrl: "https://example.com/c" },
 ];
 
 /* ---------- 유틸 ---------- */
@@ -66,15 +78,32 @@ const fmtExp = (p: Post) => {
   return t || "-";
 };
 
+/* ===== D-Day 계산(현지 자정 기준, 날짜만 비교) ===== */
+const parseYMDLocal = (s?: string | null): Date | null => {
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (!m) return new Date(s);
+  const y = +m[1], mon = +m[2] - 1, d = +m[3];
+  return new Date(y, mon, d);
+};
+
+const diffDaysLocal = (dateStr?: string | null): number | null => {
+  const tgt = parseYMDLocal(dateStr);
+  if (!tgt) return null;
+  const now = new Date();
+  const a = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const b = new Date(tgt.getFullYear(), tgt.getMonth(), tgt.getDate());
+  const DAY = 24 * 60 * 60 * 1000;
+  return Math.floor((b.getTime() - a.getTime()) / DAY); // 오늘 0, 내일 1, 어제 -1
+};
+
 const ddayBadge = (deadline?: string | null, alwaysOpen?: boolean) => {
   if (alwaysOpen || !deadline) {
     return <span className="rounded-full bg-[var(--c-cta)]/90 px-2 py-0.5 text-xs text-white">상시</span>;
   }
-  const today = new Date();
-  const end = new Date(deadline);
-  end.setHours(23, 59, 59, 999);
-  const diff = Math.ceil((end.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-  if (diff < 0) return <span className="rounded-full bg-gray-400 px-2 py-0.5 text-xs text-white">마감</span>;
+  const diff = diffDaysLocal(deadline);
+  if (diff === null) return <span className="rounded-full bg-black/80 px-2 py-0.5 text-xs text-white">-</span>;
+  if (diff < 0)   return <span className="rounded-full bg-gray-400 px-2 py-0.5 text-xs text-white">마감</span>;
   if (diff === 0) return <span className="rounded-full bg-[var(--c-accent)] px-2 py-0.5 text-xs text-white">D-Day</span>;
   const tone = diff <= 3 ? "bg-[var(--c-accent)]" : "bg-black/80";
   return <span className={`rounded-full ${tone} px-2 py-0.5 text-xs text-white`}>D-{diff}</span>;
@@ -85,6 +114,25 @@ const ProgramDday = ({ p }: { p: Program }) => {
     return <span className="rounded-full bg-black/80 px-2 py-0.5 text-xs text-white">{p.deadlineAt}</span>;
   }
   return ddayBadge(p.deadline ?? undefined, false);
+};
+
+/* ------ 모집 상태(모집중/마감) 계산: 로컬 저장 > API isClosed > 마감일 ------ */
+const statusKey = (id: string | number) => `recruitment-status:${id}`;
+const readLocalClosed = (id: string | number): boolean | null => {
+  try {
+    const v = localStorage.getItem(statusKey(id));
+    if (v === "closed") return true;
+    if (v === "open") return false;
+  } catch {}
+  return null;
+};
+const isPostClosed = (p: Post): boolean => {
+  const local = readLocalClosed(p.id);
+  if (local !== null) return local;
+  if (typeof p.isClosed === "boolean") return p.isClosed;
+  if (p.alwaysOpen) return false;
+  const d = diffDaysLocal(p.deadline);
+  return d !== null && d < 0;
 };
 
 /* ---------- 공통 섹션 래퍼 ---------- */
@@ -126,8 +174,18 @@ export default function Home() {
   const [progsRaw, setProgsRaw] = useState<any>([]);
   const [apiFailed, setApiFailed] = useState(false);
 
-  const posts = useMemo(() => normalizeList<Post>(postsRaw), [postsRaw]);
-  const programs = useMemo(() => normalizeList<Program>(progsRaw), [progsRaw]);
+  /* 자정 지나면 자동 리렌더(D-Day/필터 갱신) */
+  const [midnightTick, setMidnightTick] = useState(0);
+  useEffect(() => {
+    const now = new Date();
+    const next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 2);
+    const ms = next.getTime() - now.getTime();
+    const id = setTimeout(() => setMidnightTick(t => t + 1), ms);
+    return () => clearTimeout(id);
+  }, [midnightTick]);
+
+  const posts = useMemo(() => normalizeList<Post>(postsRaw), [postsRaw, midnightTick]);
+  const programs = useMemo(() => normalizeList<Program>(progsRaw), [progsRaw, midnightTick]);
 
   useEffect(() => {
     (async () => {
@@ -136,7 +194,7 @@ export default function Home() {
 
         /* ---------- 1) 최신 모집글(3) ---------- */
         const postsRes =
-          await api.get("/api/recruitments/search", {
+          await api.get("/api/recruitments/list", {
             params: { q: "", page: 0, size: 3, sort: "createdAt,desc" },
           }).catch(() => api.get("/api/recruitments/list"));
 
@@ -146,7 +204,7 @@ export default function Home() {
           ? postsRes.data
           : [];
 
-        const mappedPosts: Post[] = rawPosts.slice(0, 3).map((r: any) => {
+        let mappedPosts: Post[] = rawPosts.slice(0, 3).map((r: any) => {
           const locStr = (r.location || r.region || "").toString().trim();
           const [si, gu] = locStr ? locStr.split(/\s+/, 2) : [undefined, undefined];
           return {
@@ -158,8 +216,18 @@ export default function Home() {
             minYears: r.minYears ?? null,
             deadline: r.deadline ?? r.deadlineDate ?? r.receiptEndDate ?? null,
             alwaysOpen: r.alwaysOpen ?? false,
+            content: r.content ?? r.description ?? r.summary ?? "",
+            /** ▼ 백엔드가 주면 반영 */
+            isClosed: r.isClosed ?? undefined,
           };
         });
+
+        /* 모집글: 마감 지난 항목 제거(오늘은 포함) */
+        mappedPosts = mappedPosts.filter(p => {
+          if (p.alwaysOpen) return true;
+          const d = diffDaysLocal(p.deadline);
+          return d === null || d >= 0;
+        }).slice(0, 3);
 
         /* ---------- 2) 마감 임박 지원사업(6) ---------- */
         let rawProgs: any[] = [];
@@ -192,13 +260,20 @@ export default function Home() {
           })
           .slice(0, 6);
 
-        const mappedProgs: Program[] = rawProgs.map((p: any) => ({
+        let mappedProgs: Program[] = rawProgs.map((p: any) => ({
           id: String(p.id ?? p.programId ?? Math.random()),
           title: p.title ?? "(제목 없음)",
           provider: p.provider ?? p.region ?? p.supportField ?? "",
           deadline: p.receiptEndDate ?? p.deadline ?? null,
           deadlineAt: undefined,
+          applyUrl: p.applyUrl ?? p.apply_url ?? p.applyURL ?? null,
         }));
+
+        /* 지원사업: 마감 지난 항목 제거(오늘은 포함) */
+        mappedProgs = mappedProgs.filter(p => {
+          const d = diffDaysLocal(p.deadline ?? undefined);
+          return d === null || d >= 0;
+        });
 
         setPostsRaw(mappedPosts);
         setProgsRaw(mappedProgs);
@@ -218,11 +293,11 @@ export default function Home() {
       {/* 1) 히어로 슬라이드 */}
       <ImageSlider
         slides={[
-          { id: 1, src: "/hero/slide1.png", captionTitle: "팀 매칭 + 러브콜", captionText: "나에게 맞는 팀을 한 번에" },
-          { id: 2, src: "/hero/slide2.png", captionTitle: "공유오피스 탐색", captionText: "가격/편의시설로 빠르게 필터링" },
-          { id: 3, src: "/hero/slide3.png", captionTitle: "지원사업·대회", captionText: "마감 임박 순으로 놓치지 않기" },
+          { id: 1, src: "/hero/slide1.png"},
+          { id: 2, src: "/hero/slide2.png"},
+          { id: 3, src: "/hero/slide3.png"},
         ]}
-        heightClass="h-[220px] sm:h-[300px] md:h-[360px]"
+        autoAspect
         rounded="rounded-3xl"
         autoplayMs={4500}
         className="shadow-lg"
@@ -242,8 +317,8 @@ export default function Home() {
             </div>
           </div>
           <div className="flex gap-2">
-            <Link to="/teams" className="no-underline">
-              <Button>팀 둘러보기</Button>
+            <Link to="/recruitments" className="no-underline">
+              <Button>모집글 둘러보기</Button>
             </Link>
             <Link to="/programs" className="no-underline">
               <Button variant="outline">지원사업 보기</Button>
@@ -277,10 +352,10 @@ export default function Home() {
       {/* 4) 빠른 액션 카드 */}
       <div className="grid gap-4 md:grid-cols-3">
         <div className="card glass hover:lift">
-          <h3 className="font-semibold">팀 매칭 & 러브콜</h3>
-          <p className="muted mt-1 text-sm">맞춤 카드 탐색 · 보낸/받은 러브콜 관리</p>
-          <Link to="/teams" className="mt-3 inline-block no-underline">
-            <Button>팀 찾기</Button>
+          <h3 className="font-semibold">모집글 탐색</h3>
+          <p className="muted mt-1 text-sm">맞춤 카드 탐색</p>
+          <Link to="/recruitments" className="mt-3 inline-block no-underline">
+            <Button>모집글 탐색</Button>
           </Link>
         </div>
         <div className="card glass hover:lift">
@@ -316,38 +391,52 @@ export default function Home() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {posts.slice(0, 3).map((p) => (
-              <Link key={p.id} to={`/recruitments/${p.id}`} className="no-underline">
-                <article className="flex h-56 cursor-pointer flex-col justify-between rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md">
-                  <div>
-                    <h3 className="mb-2 line-clamp-2 text-base font-semibold text-[var(--c-text)] hover:brand">
-                      {p.title}
-                    </h3>
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs muted">
-                      <span>📍 {fmtRegion(p.region)}</span>
-                      <span>👤 {p.author ?? "-"}</span>
-                      <span>🏷 {fmtExp(p)}</span>
+            {posts.slice(0, 3).map((p) => {
+              const closed = isPostClosed(p);
+              return (
+                <Link key={p.id} to={`/recruitments/${p.id}`} className="no-underline">
+                  <article
+                    className={`relative flex min-h-[14rem] cursor-pointer flex-col justify-between rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md ${
+                      closed ? "opacity-80" : ""
+                    }`}
+                  >
+                    <span
+                      className={`absolute right-3 top-3 rounded-full px-2 py-0.5 text-xs ${
+                        closed ? "bg-gray-700 text-white" : "bg-emerald-600 text-white"
+                      }`}
+                    >
+                      {closed ? "마감" : "모집중"}
+                    </span>
+
+                    <div>
+                      <h3 className="mb-2 line-clamp-2 text-base font-semibold text-[var(--c-text)] hover:brand">
+                        {p.title}
+                      </h3>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs muted">
+                        <span>📍 {fmtRegion(p.region)}</span>
+                        <span>👤 {p.author ?? "-"}</span>
+                        <span>🏷 {fmtExp(p)}</span>
+                      </div>
+
+                      {p.content && (
+                        <p className="mt-3 text-sm text-[var(--c-text)]/80 line-clamp-2">
+                          {excerpt(p.content, 130)}
+                        </p>
+                      )}
                     </div>
-                  </div>
-                  <div className="mt-3 flex items-center justify-end">
-                    {ddayBadge(p.deadline ?? undefined, p.alwaysOpen)}
-                  </div>
-                </article>
-              </Link>
-            ))}
+
+                    <div className="mt-3 flex items-center justify-end">
+                      {ddayBadge(p.deadline ?? undefined, p.alwaysOpen)}
+                    </div>
+                  </article>
+                </Link>
+              );
+            })}
             {posts.length === 0 && <div className="muted">표시할 모집글이 없습니다.</div>}
           </div>
         )}
         {apiFailed && <p className="mt-2 text-xs text-amber-600">실시간 데이터를 불러오지 못해 예시 데이터를 표시하고 있어요.</p>}
       </Section>
-
-      {/* 6) 광고 배너 — public/banners/adbanner.jpg 사용 */}
-      <AdBanner
-        href="#"
-        imageUrl="/banners/adbanner.jpg"
-        className="w-full"
-        height={180}
-      />
 
       {/* 7) 마감 임박 지원사업 */}
       <Section title="마감 임박 지원사업" desc="오늘 놓치면 아쉬운 혜택" moreHref="/programs">
@@ -366,9 +455,21 @@ export default function Home() {
                 key={p.id}
                 className="flex items-center justify-between rounded-xl bg-white px-4 py-3 ring-1 ring-[var(--c-card-border)] transition hover:bg-white/90"
               >
-                <Link to={`/programs/${p.id}`} className="truncate no-underline text-[var(--c-text)] hover:brand">
-                  {p.title}
-                </Link>
+                {p.applyUrl ? (
+                  <a
+                    href={p.applyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="truncate no-underline text-[var(--c-text)] hover:brand"
+                    aria-label={`${p.title} 신청 링크 열기`}
+                  >
+                    {p.title}
+                  </a>
+                ) : (
+                  <Link to={`/programs/${p.id}`} className="truncate no-underline text-[var(--c-text)] hover:brand">
+                    {p.title}
+                  </Link>
+                )}
                 <span className="flex items-center gap-2 text-xs muted">
                   <span>{p.provider ?? ""}</span>
                   <ProgramDday p={p} />
@@ -380,24 +481,6 @@ export default function Home() {
         )}
         {apiFailed && <p className="mt-2 text-xs text-amber-600">실시간 데이터를 불러오지 못해 예시 데이터를 표시하고 있어요.</p>}
       </Section>
-
-      {/* 8) 하단 광고 & CTA — 같은 배너 이미지 재사용 */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <AdBanner href="#" imageUrl="/banners/adbanner.jpg" />
-        <AdBanner href="#" imageUrl="/banners/adbanner.jpg" />
-        <div className="card glass flex flex-col justify-center">
-          <h3 className="text-lg font-semibold">지금 시작해 보세요</h3>
-          <p className="muted mt-1 text-sm">모집글 작성, 공간 등록, 이력서 업로드까지 한 번에</p>
-          <div className="mt-3 flex gap-2">
-            <Link to="/teams/new" className="no-underline">
-              <Button>모집글 작성</Button>
-            </Link>
-            <Link to="/spaces/new" className="no-underline">
-              <Button variant="outline">공간 등록</Button>
-            </Link>
-          </div>
-        </div>
-      </div>
     </div>
   );
 }

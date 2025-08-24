@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import api from "@/lib/api";
 import Button from "@/components/Button";
 
@@ -20,26 +20,27 @@ type SharedOffice = {
   size?: number; // ㎡
   location: string; // 주소
   maxCount?: number;
-  feeMonthly?: number; // ✅ 월 요금 (백엔드/DB 필드와 일치)
+  feeMonthly?: number; // 월 요금
 
-  // 선택값(있으면 표시)
-  landmark?: string; // 예: "강남역 도보 2분"
-  amenities?: string[]; // 편의시설 태그
+  landmark?: string;
+  amenities?: string[];
 
-  // 호스트 정보
   hostBusinessName?: string;
   hostRepresentativeName?: string;
   businessRegistrationNumber?: string;
-  hostContact?: string; // 전화
+  hostContact?: string;
 };
 
 type PhotoItem = {
-  id: number;
+  id: number; // (photoId 또는 id → id로 노멀라이즈)
   url: string;
   caption?: string;
   isMain?: boolean;
   seq?: number;
 };
+
+type ReorderBody = { orders: Array<{ photoId: number; seq: number }> };
+type UploadQueueItem = { file: File; caption: string; preview: string };
 
 /* =========================
  * Kakao loader
@@ -65,12 +66,27 @@ async function ensureKakao(): Promise<any> {
   return window.kakao;
 }
 
+/* 편집 폼 상태 타입 */
+type EditForm = {
+  name: string;
+  description: string;
+  roomCount: string;
+  size: string;
+  location: string;
+  maxCount: string;
+  feeMonthly: string;
+  hostRepresentativeName: string;
+  businessRegistrationNumber: string;
+  hostContact: string;
+};
+
 /* =========================
  * Page
  * =======================*/
 export default function SpaceDetail() {
   const { id } = useParams();
   const officeId = Number(id);
+  const navigate = useNavigate();
 
   const [space, setSpace] = useState<SharedOffice | null>(null);
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
@@ -78,29 +94,71 @@ export default function SpaceDetail() {
   const [loading, setLoading] = useState(true);
   const [mapError, setMapError] = useState<string | null>(null);
 
+  // 편집 모드 & 폼
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState<EditForm>({
+    name: "",
+    description: "",
+    roomCount: "",
+    size: "",
+    location: "",
+    maxCount: "",
+    feeMonthly: "",
+    hostRepresentativeName: "",
+    businessRegistrationNumber: "",
+    hostContact: "",
+  });
+
+  // 사진 업로드/편집 상태
+  const [queue, setQueue] = useState<UploadQueueItem[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [reordering, setReordering] = useState(false);
+  const [mainSetting, setMainSetting] = useState<number | null>(null);
+  const [deleting, setDeleting] = useState<number | null>(null);
+
+  // DnD
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
   const mapBoxRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // 메인 표시용 사진 정렬
   const gallery = useMemo(() => {
     if (!photos?.length) return [];
     const sorted = [...photos].sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-    // isMain이 있으면 맨 앞으로
+    // 대표사진 맨 앞
     sorted.sort((a, b) => (b.isMain ? 1 : 0) - (a.isMain ? 1 : 0));
     return sorted;
   }, [photos]);
 
   const activePhoto = gallery[activeIdx];
 
+  // 상세 로드
+  const loadDetail = async () => {
+    const [d1, d2] = await Promise.all([
+      api.get<SharedOffice>(`/shared-offices/${officeId}`),
+      api.get<any[]>(`/shared-offices/${officeId}/photos`).catch(() => ({
+        data: [] as any[],
+      })),
+    ]);
+    setSpace(d1.data);
+    const normalized: PhotoItem[] = (d2.data || []).map((p: any) => ({
+      id: p.id ?? p.photoId,
+      url: p.url,
+      caption: p.caption,
+      isMain: p.isMain,
+      seq: p.seq,
+    }));
+    setPhotos(normalized);
+  };
+
   useEffect(() => {
     (async () => {
       try {
         setLoading(true);
-        const [d1, d2] = await Promise.all([
-          api.get<SharedOffice>(`/shared-offices/${officeId}`),
-          api.get<PhotoItem[]>(`/shared-offices/${officeId}/photos`),
-        ]);
-        setSpace(d1.data);
-        setPhotos(d2.data || []);
+        await loadDetail();
       } catch (e) {
         console.error(e);
       } finally {
@@ -109,7 +167,7 @@ export default function SpaceDetail() {
     })();
   }, [officeId]);
 
-  // Kakao Map: 주소 -> 좌표 -> 마커
+  // Kakao Map
   useEffect(() => {
     (async () => {
       if (!space?.location || !mapBoxRef.current) return;
@@ -122,7 +180,7 @@ export default function SpaceDetail() {
             setMapError("주소 좌표를 찾지 못했습니다.");
             return;
           }
-          const { x, y } = result[0]; // x:lng, y:lat
+          const { x, y } = result[0];
           const center = new kakao.maps.LatLng(y, x);
 
           const map = new kakao.maps.Map(mapBoxRef.current, {
@@ -142,6 +200,216 @@ export default function SpaceDetail() {
       }
     })();
   }, [space?.location]);
+
+  // 편집 시작
+  const startEdit = () => {
+    if (!space) return;
+    setForm({
+      name: space.name ?? "",
+      description: space.description ?? "",
+      roomCount: space.roomCount != null ? String(space.roomCount) : "",
+      size: space.size != null ? String(space.size) : "",
+      location: space.location ?? "",
+      maxCount: space.maxCount != null ? String(space.maxCount) : "",
+      feeMonthly: space.feeMonthly != null ? String(space.feeMonthly) : "",
+      hostRepresentativeName: space.hostRepresentativeName ?? "",
+      businessRegistrationNumber: space.businessRegistrationNumber ?? "",
+      hostContact: space.hostContact ?? "",
+    });
+    setEditing(true);
+  };
+
+  // 입력 핸들러
+  const onChange = (k: keyof EditForm, v: string) =>
+    setForm((f) => ({ ...f, [k]: v }));
+
+  // PATCH 저장
+  const saveEdit = async () => {
+    if (!space) return;
+    setSaving(true);
+    try {
+      const payload: Record<string, any> = {};
+      const assign = (key: keyof EditForm, toKey: string, asNumber = false) => {
+        const raw = form[key]?.trim();
+        if (raw === "" || raw == null) return;
+        payload[toKey] = asNumber ? Number(raw) : raw;
+      };
+
+      assign("name", "name");
+      assign("description", "description");
+      assign("roomCount", "roomCount", true);
+      assign("size", "size", true);
+      assign("location", "location");
+      assign("maxCount", "maxCount", true);
+      assign("feeMonthly", "feeMonthly", true);
+      assign("hostRepresentativeName", "hostRepresentativeName");
+      assign("businessRegistrationNumber", "businessRegistrationNumber");
+      assign("hostContact", "hostContact");
+
+      await api.patch(`/shared-offices/${space.id}`, payload);
+      await loadDetail();
+      setEditing(false);
+      alert("수정되었습니다.");
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "수정에 실패했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 삭제
+  const remove = async () => {
+    if (!space) return;
+    const ok = window.confirm("이 공유오피스를 삭제할까요? 이 작업은 되돌릴 수 없습니다.");
+    if (!ok) return;
+
+    try {
+      await api.delete(`/shared-offices/${space.id}`);
+      alert("삭제되었습니다.");
+      navigate("/spaces");
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "삭제에 실패했습니다.");
+    }
+  };
+
+  /* =========================
+   * Photo helpers
+   * =======================*/
+  const onPickFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const items: UploadQueueItem[] = Array.from(files).map((f) => ({
+      file: f,
+      caption: "",
+      preview: URL.createObjectURL(f),
+    }));
+    setQueue((q) => [...q, ...items].slice(0, 10));
+    // 같은 파일 다시 선택 가능하도록 input 초기화
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const onChangeCaption = (idx: number, v: string) =>
+    setQueue((q) => q.map((it, i) => (i === idx ? { ...it, caption: v } : it)));
+
+  const removeFromQueue = (idx: number) =>
+    setQueue((q) => {
+      const copy = [...q];
+      const [rm] = copy.splice(idx, 1);
+      if (rm) URL.revokeObjectURL(rm.preview);
+      return copy;
+    });
+
+  const clearQueue = () => {
+    queue.forEach((q) => URL.revokeObjectURL(q.preview));
+    setQueue([]);
+  };
+
+  const uploadQueue = async () => {
+    if (!space || queue.length === 0) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      queue.forEach((q) => fd.append("files", q.file));
+      queue.forEach((q) => fd.append("captions", q.caption || ""));
+      await api.post(`/shared-offices/${space.id}/photos`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      clearQueue();
+      await loadDetail();
+      alert("사진이 업로드되었습니다.");
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "업로드에 실패했습니다.");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const sendReorder = async (arr: PhotoItem[]) => {
+    if (!space) return;
+    setReordering(true);
+    try {
+      // 연속 seq(0..n-1)로 보냄 (백엔드 중복 체크 대비)
+      const orders: ReorderBody["orders"] = arr.map((p, i) => ({
+        photoId: p.id,
+        seq: i,
+      }));
+      await api.patch(`/shared-offices/${space.id}/photos/reorder`, { orders });
+      await loadDetail();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "정렬 저장에 실패했습니다.");
+    } finally {
+      setReordering(false);
+    }
+  };
+
+  const setMain = async (photoId: number) => {
+    if (!space) return;
+    setMainSetting(photoId);
+    try {
+      await api.patch(`/shared-offices/${space.id}/photos/${photoId}/main`);
+      await loadDetail();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "대표 지정에 실패했습니다.");
+    } finally {
+      setMainSetting(null);
+    }
+  };
+
+  const deletePhoto = async (photoId: number) => {
+    if (!space) return;
+    const ok = window.confirm("이 사진을 삭제할까요?");
+    if (!ok) return;
+    setDeleting(photoId);
+    try {
+      await api.delete(`/shared-offices/${space.id}/photos/${photoId}`);
+      await loadDetail();
+    } catch (e: any) {
+      console.error(e);
+      alert(e?.response?.data?.message || "사진 삭제에 실패했습니다.");
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  // DnD 유틸
+  const handleDragStart = (idx: number) => (e: React.DragEvent) => {
+    setDragIndex(idx);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", String(idx));
+  };
+
+  const handleDragOver = (idx: number) => (e: React.DragEvent) => {
+    e.preventDefault(); // drop 허용
+    setDragOverIndex(idx);
+    e.dataTransfer.dropEffect = "move";
+  };
+
+  const handleDrop = (idx: number) => async (e: React.DragEvent) => {
+    e.preventDefault();
+    const from =
+      dragIndex ?? Number(e.dataTransfer.getData("text/plain") || -1);
+    const to = idx;
+    setDragIndex(null);
+    setDragOverIndex(null);
+    if (from === -1 || from === to) return;
+
+    const next = [...photos];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setPhotos(next);
+
+    // 서버에 즉시 반영
+    await sendReorder(next);
+  };
+
+  const handleDragEnd = () => {
+    setDragIndex(null);
+    setDragOverIndex(null);
+  };
 
   if (loading) {
     return (
@@ -169,9 +437,7 @@ export default function SpaceDetail() {
   if (!space) {
     return (
       <div className="rounded-2xl border border-[var(--c-card-border)] bg-white p-8">
-        <div className="text-center text-sm text-rose-600">
-          공간을 불러오지 못했습니다.
-        </div>
+        <div className="text-center text-sm text-rose-600">공간을 불러오지 못했습니다.</div>
       </div>
     );
   }
@@ -185,7 +451,7 @@ export default function SpaceDetail() {
 
   return (
     <div className="grid gap-6">
-      {/* 제목 + 이정표 */}
+      {/* 제목 + CTA */}
       <header className="rounded-2xl border border-[var(--c-card-border)] bg-white p-6">
         <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
           <div>
@@ -198,20 +464,208 @@ export default function SpaceDetail() {
               </div>
             )}
           </div>
-          <div className="flex gap-2">
+
+          <div className="flex flex-wrap gap-2">
             <Link to={`/spaces/${space.id}/reserve`} className="no-underline">
               <Button className="h-11">예약 신청하기</Button>
             </Link>
+
+            {!editing ? (
+              <>
+                <Button variant="outline" className="h-11" onClick={startEdit}>
+                  수정
+                </Button>
+                <Button variant="outline" className="h-11" onClick={remove}>
+                  삭제
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button className="h-11" onClick={saveEdit} disabled={saving}>
+                  {saving ? "저장 중…" : "저장"}
+                </Button>
+                <Button
+                  variant="outline"
+                  className="h-11"
+                  onClick={() => setEditing(false)}
+                  disabled={saving}
+                >
+                  취소
+                </Button>
+              </>
+            )}
+
             {space.hostContact && (
               <a href={`tel:${space.hostContact}`} className="no-underline">
-                <Button variant="outline" className="h-11">
-                  전화 문의
-                </Button>
+                <Button variant="outline" className="h-11">전화 문의</Button>
               </a>
             )}
           </div>
         </div>
       </header>
+
+      {/* 편집 폼 + 사진 관리 */}
+      {editing && (
+        <section className="rounded-2xl border border-[var(--c-card-border)] bg-white p-6">
+          <h2 className="text-base font-semibold mb-4">공유오피스 정보 수정</h2>
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="grid gap-1">
+              <span className="text-xs muted">이름</span>
+              <input className="input" value={form.name} onChange={(e) => onChange("name", e.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs muted">주소</span>
+              <input className="input" value={form.location} onChange={(e) => onChange("location", e.target.value)} />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs muted">월 요금</span>
+              <input className="input" type="number" value={form.feeMonthly} onChange={(e) => onChange("feeMonthly", e.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs muted">면적(㎡)</span>
+              <input className="input" type="number" value={form.size} onChange={(e) => onChange("size", e.target.value)} />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs muted">방 개수</span>
+              <input className="input" type="number" value={form.roomCount} onChange={(e) => onChange("roomCount", e.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs muted">최대 수용(명)</span>
+              <input className="input" type="number" value={form.maxCount} onChange={(e) => onChange("maxCount", e.target.value)} />
+            </label>
+
+            <label className="md:col-span-2 grid gap-1">
+              <span className="text-xs muted">상세 소개</span>
+              <textarea className="input min-h-[90px]" value={form.description} onChange={(e) => onChange("description", e.target.value)} />
+            </label>
+
+            <label className="grid gap-1">
+              <span className="text-xs muted">대표자</span>
+              <input className="input" value={form.hostRepresentativeName} onChange={(e) => onChange("hostRepresentativeName", e.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs muted">사업자번호</span>
+              <input className="input" value={form.businessRegistrationNumber} onChange={(e) => onChange("businessRegistrationNumber", e.target.value)} />
+            </label>
+            <label className="grid gap-1">
+              <span className="text-xs muted">연락처</span>
+              <input className="input" value={form.hostContact} onChange={(e) => onChange("hostContact", e.target.value)} />
+            </label>
+          </div>
+
+          {/* === 사진 관리 === */}
+          <div className="mt-8 border-t border-[var(--c-card-border)] pt-6">
+            <h3 className="text-sm font-semibold mb-3">사진 관리</h3>
+
+            {/* 업로드 대기열 */}
+            <div className="rounded-xl border border-[var(--c-card-border)] p-4">
+              <div className="flex items-center gap-3">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  onChange={(e) => onPickFiles(e.target.files)}
+                />
+                <Button onClick={uploadQueue} disabled={uploading || queue.length === 0}>
+                  {uploading ? "업로드 중…" : "선택 파일 업로드"}
+                </Button>
+                {queue.length > 0 && (
+                  <Button variant="outline" onClick={clearQueue}>
+                    선택 취소
+                  </Button>
+                )}
+                <span className="muted text-xs ml-auto">요청당 최대 10장 업로드</span>
+              </div>
+
+              {queue.length > 0 && (
+                <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                  {queue.map((q, i) => (
+                    <div key={i} className="rounded-lg border border-[var(--c-card-border)] p-2">
+                      <img src={q.preview} className="h-28 w-full rounded object-cover" alt={`preview-${i}`} />
+                      <input
+                        className="input mt-2"
+                        placeholder="캡션(선택)"
+                        value={q.caption}
+                        onChange={(e) => onChangeCaption(i, e.target.value)}
+                      />
+                      <Button variant="outline" className="mt-2 w-full" onClick={() => removeFromQueue(i)}>
+                        제거
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 기존 사진 리스트 - 드래그&드롭/대표/삭제 */}
+            <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {photos.map((p, idx) => {
+                const isDragging = dragIndex === idx;
+                const isOver = dragOverIndex === idx && dragIndex !== null && dragIndex !== idx;
+                return (
+                  <div
+                    key={p.id}
+                    className={`rounded-lg border border-[var(--c-card-border)] p-2 transition
+                      ${isDragging ? "opacity-60" : ""}
+                      ${isOver ? "outline outline-2 outline-[var(--c-brand)]" : ""}`
+                    }
+                    draggable
+                    onDragStart={handleDragStart(idx)}
+                    onDragOver={handleDragOver(idx)}
+                    onDrop={handleDrop(idx)}
+                    onDragEnd={handleDragEnd}
+                    title="드래그하여 순서를 바꿀 수 있어요"
+                  >
+                    <div className="relative">
+                      <img
+                        src={p.url}
+                        className="h-28 w-full rounded object-cover"
+                        alt={p.caption || `photo-${p.id}`}
+                      />
+                      {p.isMain && (
+                        <span className="absolute left-2 top-2 rounded bg-[var(--c-brand)] px-2 py-0.5 text-[10px] text-white">
+                          대표
+                        </span>
+                      )}
+                    </div>
+                    <div className="mt-2 line-clamp-2 text-[12px] text-[var(--c-text-muted)]">
+                      {p.caption || "캡션 없음"}
+                    </div>
+                    <div className="mt-2 grid grid-cols-2 gap-1">
+                      <Button
+                        variant="outline"
+                        onClick={() => setMain(p.id)}
+                        disabled={mainSetting === p.id || p.isMain === true}
+                        title="대표 지정"
+                      >
+                        {mainSetting === p.id ? "…" : "대표"}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="!text-rose-600"
+                        onClick={() => deletePhoto(p.id)}
+                        disabled={deleting === p.id}
+                      >
+                        {deleting === p.id ? "삭제 중…" : "삭제"}
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+              {photos.length === 0 && (
+                <div className="col-span-full text-xs text-[var(--c-text-muted)]">등록된 사진이 없습니다.</div>
+              )}
+            </div>
+
+            {reordering && (
+              <div className="mt-2 text-xs text-[var(--c-text-muted)]">정렬 저장 중…</div>
+            )}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         {/* 메인 열 */}
@@ -274,10 +728,7 @@ export default function SpaceDetail() {
             {space.amenities?.length ? (
               <div className="mt-3 flex flex-wrap gap-2">
                 {space.amenities.map((a) => (
-                  <span
-                    key={a}
-                    className="rounded-full border border-[var(--c-card-border)] bg-white px-3 py-1 text-xs"
-                  >
+                  <span key={a} className="rounded-full border border-[var(--c-card-border)] bg-white px-3 py-1 text-xs">
                     #{a}
                   </span>
                 ))}
@@ -296,7 +747,7 @@ export default function SpaceDetail() {
           </div>
         </section>
 
-        {/* 사이드 열: 호스트/요약/CTA */}
+        {/* 사이드 열 */}
         <aside className="grid gap-6">
           <div className="grid gap-3 rounded-2xl border border-[var(--c-card-border)] bg-white p-6">
             <h3 className="text-sm font-semibold">요금 & 요약</h3>
@@ -343,9 +794,7 @@ export default function SpaceDetail() {
             </ul>
             {space.hostContact && (
               <a href={`tel:${space.hostContact}`} className="no-underline">
-                <Button variant="outline" className="mt-3 h-11 w-full">
-                  전화 문의
-                </Button>
+                <Button variant="outline" className="mt-3 h-11 w-full">전화 문의</Button>
               </a>
             )}
           </div>

@@ -77,14 +77,36 @@ export default function LoveCallInbox() {
                                                 : lc.toName ?? `수신자 #${lc.recipientId}` }), _jsx("div", { className: "text-center text-sm", children: formatDateTime(lc.createdAt) }), _jsxs("div", { className: "flex items-center justify-center gap-2", children: [lc.recruitmentId ? (_jsx(Link, { to: recruitmentPath(lc.recruitmentId), className: "btn btn-outline h-7 px-2 text-xs", children: "\uBAA8\uC9D1\uAE00" })) : null, _jsx("button", { onClick: () => onDelete(lc.id), className: "btn btn-outline h-7 px-2 text-xs", children: "\uC0AD\uC81C" })] })] }, lc.id));
                             }), !loading && items.length === 0 && (_jsx("li", { className: "px-3 py-6 text-center text-sm muted", children: "\uD45C\uC2DC\uD560 \uD56D\uBAA9\uC774 \uC5C6\uC2B5\uB2C8\uB2E4." })), loading && (_jsx("li", { className: "px-3 py-6 text-center text-sm muted", children: "\uBD88\uB7EC\uC624\uB294 \uC911\u2026" })), err && (_jsx("li", { className: "px-3 py-6 text-center text-sm accent", children: err }))] })] })] }));
 }
+/**
+ * createdAt 문자열을 Asia/Seoul(KST) 기준으로 "YYYY-MM-DD HH:mm"로 표기
+ * - ISO에 타임존이 있으면 그대로 사용
+ * - 타임존 정보가 없으면 UTC로 가정(Z 추가) 후 KST로 변환
+ */
 function formatDateTime(v) {
-    const d = new Date(v);
+    if (!v)
+        return "-";
+    // T 없으면 공백 포맷으로 가정 → T로 치환
+    let iso = /T/.test(v) ? v : v.replace(" ", "T");
+    // 끝에 Z나 ±HH:MM 없으면 UTC로 가정하고 Z 부여
+    if (!/(Z|[+-]\d\d:\d\d)$/.test(iso))
+        iso += "Z";
+    const d = new Date(iso);
     if (Number.isNaN(d.getTime()))
         return v;
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${y}-${m}-${day} ${hh}:${mm}`;
+    const dtf = new Intl.DateTimeFormat("ko-KR", {
+        timeZone: "Asia/Seoul",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    });
+    const parts = Object.fromEntries(dtf.formatToParts(d).map((p) => [p.type, p.value]));
+    const yyyy = parts.year;
+    const mm = parts.month;
+    const dd = parts.day;
+    const hh = parts.hour;
+    const mi = parts.minute;
+    return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
 }

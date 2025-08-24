@@ -255,13 +255,41 @@ export default function LoveCallInbox() {
   );
 }
 
+/**
+ * createdAt 문자열을 Asia/Seoul(KST) 기준으로 "YYYY-MM-DD HH:mm"로 표기
+ * - ISO에 타임존이 있으면 그대로 사용
+ * - 타임존 정보가 없으면 UTC로 가정(Z 추가) 후 KST로 변환
+ */
 function formatDateTime(v: string) {
-  const d = new Date(v);
+  if (!v) return "-";
+
+  // T 없으면 공백 포맷으로 가정 → T로 치환
+  let iso = /T/.test(v) ? v : v.replace(" ", "T");
+  // 끝에 Z나 ±HH:MM 없으면 UTC로 가정하고 Z 부여
+  if (!/(Z|[+-]\d\d:\d\d)$/.test(iso)) iso += "Z";
+
+  const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return v;
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const hh = String(d.getHours()).padStart(2, "0");
-  const mm = String(d.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${day} ${hh}:${mm}`;
+
+  const dtf = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+
+  const parts = Object.fromEntries(
+    dtf.formatToParts(d).map((p) => [p.type, p.value])
+  ) as Record<string, string>;
+
+  const yyyy = parts.year;
+  const mm = parts.month;
+  const dd = parts.day;
+  const hh = parts.hour;
+  const mi = parts.minute;
+
+  return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
 }
