@@ -34,19 +34,32 @@ export type SharedOffice = {
   businessRegistrationNumber?: string;
   hostContact?: string;
 
-  thumbnailUrl?: string | null;
-  pricePerMonth?: number | null;   // 프론트 표준 키
+  // ✅ 이미지
+  thumbnailUrl?: string | null;   // 프론트 카드가 기본 사용하는 키
+  mainPhotoUrl?: string | null;   // 백엔드가 내려주는 대표 이미지 키
+
+  // 요금/기타
+  pricePerMonth?: number | null;  // 프론트 표준 키
   distanceNote?: string | null;
 };
 
 /** 내부: 백엔드 → 프론트 매핑 */
 function mapOffice(dto: any): SharedOffice {
   if (!dto || typeof dto !== "object") return dto;
+
+  // ✅ 백엔드(mainPhotoUrl) ↔ 프론트(thumbnailUrl) 호환 보정
+  const mainPhotoUrl: string | null =
+    dto.mainPhotoUrl ?? dto.thumbnailUrl ?? null;
+
+  // ✅ 요금 키 보정 (feeMonthly → pricePerMonth)
+  const pricePerMonth: number | null =
+    dto.pricePerMonth ?? (dto.feeMonthly !== undefined ? dto.feeMonthly : null);
+
   return {
     ...dto,
-    // 백엔드 feeMonthly → 프론트 pricePerMonth 로 노출
-    pricePerMonth:
-      dto.pricePerMonth ?? (dto.feeMonthly !== undefined ? dto.feeMonthly : null),
+    mainPhotoUrl,
+    thumbnailUrl: dto.thumbnailUrl ?? mainPhotoUrl ?? null,
+    pricePerMonth,
   };
 }
 
@@ -197,7 +210,7 @@ export async function uploadSharedOfficePhotos(
 ) {
   if (!files?.length) return;
   const fd = new FormData();
-  files.forEach((f) => fd.append("files", f));      // ← 필드명 files 로 변경
+  files.forEach((f) => fd.append("files", f)); // ← 필드명 files
   if (captions?.length) captions.forEach((c) => fd.append("captions", c));
   await api.post(`/api/shared-offices/${officeId}/photos`, fd, {
     headers: { "Content-Type": "multipart/form-data" },

@@ -4,10 +4,15 @@ import api from "@/lib/api";
 function mapOffice(dto) {
     if (!dto || typeof dto !== "object")
         return dto;
+    // ✅ 백엔드(mainPhotoUrl) ↔ 프론트(thumbnailUrl) 호환 보정
+    const mainPhotoUrl = dto.mainPhotoUrl ?? dto.thumbnailUrl ?? null;
+    // ✅ 요금 키 보정 (feeMonthly → pricePerMonth)
+    const pricePerMonth = dto.pricePerMonth ?? (dto.feeMonthly !== undefined ? dto.feeMonthly : null);
     return {
         ...dto,
-        // 백엔드 feeMonthly → 프론트 pricePerMonth 로 노출
-        pricePerMonth: dto.pricePerMonth ?? (dto.feeMonthly !== undefined ? dto.feeMonthly : null),
+        mainPhotoUrl,
+        thumbnailUrl: dto.thumbnailUrl ?? mainPhotoUrl ?? null,
+        pricePerMonth,
     };
 }
 function mapPhoto(p) {
@@ -119,7 +124,7 @@ export async function uploadSharedOfficePhotos(officeId, files, captions) {
     if (!files?.length)
         return;
     const fd = new FormData();
-    files.forEach((f) => fd.append("files", f)); // ← 필드명 files 로 변경
+    files.forEach((f) => fd.append("files", f)); // ← 필드명 files
     if (captions?.length)
         captions.forEach((c) => fd.append("captions", c));
     await api.post(`/api/shared-offices/${officeId}/photos`, fd, {

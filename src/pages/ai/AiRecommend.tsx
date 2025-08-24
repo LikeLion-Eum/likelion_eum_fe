@@ -59,6 +59,22 @@ function Thumb({ alt }: { alt: string }) {
   );
 }
 
+/* ✅ 실제 이미지 렌더러: 있으면 <img>, 없으면 <Thumb> */
+function OfficeThumb({ office }: { office: SharedOffice }) {
+  // 서비스 레이어에서 mainPhotoUrl → thumbnailUrl 보정하지만, 방어적으로 둘 다 확인
+  const src = office.thumbnailUrl ?? (office as any).mainPhotoUrl ?? null;
+  if (!src) return <Thumb alt={`${office.name} 썸네일`} />;
+  return (
+    <img
+      src={src}
+      alt={`${office.name} 썸네일`}
+      className="h-36 w-full rounded-lg object-cover"
+      loading="lazy"
+      decoding="async"
+    />
+  );
+}
+
 /* 인재 카드 */
 function CandidateCard({
   cand,
@@ -171,7 +187,8 @@ function IncubationCard({ item }: { item: IncubationRec }) {
       {item.reason && (
         <div className="mt-2 text-sm text-gray-700">
           <button className="underline text-gray-600 mb-1" onClick={() => setOpen((v) => !v)}>
-            {open ? "이유 닫기" : "왜 추천했나요?"}
+            {open ? "이유 닫기" : "왜 추천했나요?"
+            }
           </button>
           {open ? (
             <p className="whitespace-pre-line">{item.reason}</p>
@@ -297,50 +314,49 @@ export default function AiRecommend() {
 
   /** 러브콜 전송 – 실제 POST 호출 */
   const onSendLoveCall = async (cand: TalentCandidate) => {
-  if (!selected) return;
+    if (!selected) return;
 
-  const message = prompt(`"${cand.name}" 님에게 보낼 메시지 입력`);
-  if (!message) return;
+    const message = prompt(`"${cand.name}" 님에게 보낼 메시지 입력`);
+    if (!message) return;
 
-  try {
-    // AI 응답이 userId 또는 profileId 로 올 수 있으니 모두 대비
-    const recipient =
-      (cand as any).profileId ??
-      (cand as any).userId ??
-      (cand as any).profile_id;
+    try {
+      // AI 응답이 userId 또는 profileId 로 올 수 있으니 모두 대비
+      const recipient =
+        (cand as any).profileId ??
+        (cand as any).userId ??
+        (cand as any).profile_id;
 
-    if (!recipient) {
-      toast.error("후보의 수신자 ID(userId/profileId)를 찾을 수 없어요.");
-      console.log("[love-call] candidate object:", cand);
-      return;
+      if (!recipient) {
+        toast.error("후보의 수신자 ID(userId/profileId)를 찾을 수 없어요.");
+        console.log("[love-call] candidate object:", cand);
+        return;
+      }
+
+      console.log("[love-call] send", {
+        recruitmentId: selected.id,
+        recipientId: recipient,
+        message,
+      });
+
+      await sendLoveCall({
+        recruitmentId: selected.id,
+        recipientId: recipient,
+        // 해커톤용: 고정 유저라면 senderId: 1 넣어도 됨
+        senderId: 1,
+        message,
+      });
+
+      toast.success("러브콜을 보냈어요!");
+    } catch (e: any) {
+      const msg =
+        e?.response?.data?.error ||
+        e?.response?.data?.message ||
+        (typeof e?.response?.data === "string" ? e.response.data : "") ||
+        e?.message ||
+        "러브콜 전송에 실패했어요.";
+      toast.error(msg);
     }
-
-    console.log("[love-call] send", {
-      recruitmentId: selected.id,
-      recipientId: recipient,
-      message,
-    });
-
-    await sendLoveCall({
-      recruitmentId: selected.id,
-      recipientId: recipient,
-      // 해커톤용: 고정 유저라면 senderId: 1 넣어도 됨
-      senderId: 1,
-      message,
-    });
-
-    toast.success("러브콜을 보냈어요!");
-  } catch (e: any) {
-    const msg =
-      e?.response?.data?.error ||
-      e?.response?.data?.message ||
-      (typeof e?.response?.data === "string" ? e.response.data : "") ||
-      e?.message ||
-      "러브콜 전송에 실패했어요.";
-    toast.error(msg);
-  }
-};
-
+  };
 
   if (loading) {
     return (
@@ -448,7 +464,9 @@ export default function AiRecommend() {
                   key={o.id}
                   className="rounded-xl border border-[var(--c-card-border)] p-3 transition hover:shadow-md"
                 >
-                  <Thumb alt={`${o.name} 썸네일`} />
+                  {/* ✅ 여기만 바뀜: 이미지 있으면 표시 */}
+                  <OfficeThumb office={o} />
+
                   <div className="mt-3 flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-medium">{o.name}</div>
