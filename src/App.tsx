@@ -24,9 +24,9 @@ import ProgramDetail from "@/pages/programs/ProgramDetail";
 
 /* 마이페이지 */
 import MyPage from "@/pages/my/MyPage";
-import MyProfileEdit from "@/pages/my/MyProfileEdit"
-import MyResumeEdit from "@/pages/my/MyResumeEdit"
-import HostReservations from "@/pages/my/HostReservations"
+import MyProfileEdit from "@/pages/my/MyProfileEdit";
+import MyResumeEdit from "@/pages/my/MyResumeEdit";
+import HostReservations from "@/pages/my/HostReservations";
 
 /* AI 추천 */
 import AiRecommend from "@/pages/ai/AiRecommend";
@@ -34,7 +34,7 @@ import AiRecommend from "@/pages/ai/AiRecommend";
 /* 공통 */
 import ErrorBoundary from "@/components/ErrorBoundary";
 
-/* ✅ Toast Provider 추가 */
+/* ✅ Toast Provider */
 import { ToastHost } from "@/components/ToastHost";
 
 export default function App() {
@@ -48,12 +48,16 @@ export default function App() {
               <Routes>
                 <Route path="/" element={<Home />} />
 
-                {/* 팀 */}
+                {/* 팀 (기존 경로 유지) */}
                 <Route path="/teams" element={<TeamList />} />
                 <Route path="/teams/new" element={<TeamForm />} />
                 <Route path="/teams/:id" element={<TeamDetail />} />
                 {/* ✔ 등록 완료 & 추천 */}
                 <Route path="/teams/complete" element={<RecruitComplete />} />
+
+                {/* 🔁 별칭: recruitments → 팀 라우트 재사용 */}
+                <Route path="/recruitments" element={<TeamList />} />
+                <Route path="/recruitments/:id" element={<TeamDetail />} />
 
                 {/* 공간 */}
                 <Route path="/spaces" element={<SpaceList />} />

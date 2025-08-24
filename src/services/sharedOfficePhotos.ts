@@ -16,7 +16,7 @@ export type UploadPhotosResponse = {
 /** 사진 목록 조회 */
 export async function listSharedOfficePhotos(officeId: number) {
   const { data } = await api.get<PhotoItem[]>(
-    `/shared-offices/${officeId}/photos`
+    `/api/shared-offices/${officeId}/photos`
   );
   return data;
 }
@@ -32,7 +32,7 @@ export async function uploadSharedOfficePhotos(
   (captions ?? []).forEach((c) => fd.append("captions", c));
 
   const { data } = await api.post<UploadPhotosResponse>(
-    `/shared-offices/${officeId}/photos`,
+    `/api/shared-offices/${officeId}/photos`,
     fd,
     { headers: { "Content-Type": "multipart/form-data" } }
   );
@@ -44,7 +44,7 @@ export async function setMainSharedOfficePhoto(
   officeId: number,
   photoId: number
 ) {
-  await api.patch(`/shared-offices/${officeId}/photos/${photoId}/main`);
+  await api.patch(`/api/shared-offices/${officeId}/photos/${photoId}/main`);
 }
 
 /** 순서 변경: 서버 ReorderRequest는 { ids: Long[] } */
@@ -52,7 +52,7 @@ export async function reorderSharedOfficePhotos(
   officeId: number,
   ids: number[]
 ) {
-  await api.patch(`/shared-offices/${officeId}/photos/reorder`, { ids });
+  await api.patch(`/api/shared-offices/${officeId}/photos/reorder`, { ids });
 }
 
 /** 사진 삭제 */
@@ -60,5 +60,5 @@ export async function deleteSharedOfficePhoto(
   officeId: number,
   photoId: number
 ) {
-  await api.delete(`/shared-offices/${officeId}/photos/${photoId}`);
+  await api.delete(`/api/shared-offices/${officeId}/photos/${photoId}`);
 }

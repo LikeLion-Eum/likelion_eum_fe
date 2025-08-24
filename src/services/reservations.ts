@@ -16,7 +16,7 @@ export type OfficeReservation = {
 // GET /api/shared-offices/{officeId}/reservations
 export async function fetchOfficeReservations(officeId: number) {
   const { data } = await api.get<OfficeReservation[]>(
-    `/shared-offices/${officeId}/reservations`
+    `/api/shared-offices/${officeId}/reservations`
   );
   return data ?? [];
 }

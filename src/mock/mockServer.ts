@@ -59,7 +59,7 @@ const basePosts = [
   { id: "12", title: "리서처 인턴 (사용성 테스트)",            region: { si: "대구", gu: "중구" }     as Region, author: "고리서", expType: "신입",  minYears: null, role: "디자인",     skills: ["Research","Interview"], headcount: 1, description: "UT/인터뷰" },
 ];
 
-// 48개로 확장 (페이지네이션 테스트 편하게)
+// 48개로 확장
 const posts = Array.from({ length: 48 }).map((_, i) => {
   const b = basePosts[i % basePosts.length];
   const batch = Math.floor(i / basePosts.length) + 1; // 1~4
@@ -82,14 +82,14 @@ export default function setupMock(api: AxiosInstance) {
     return [200, { items: GUS_BY_SI[si] || [] }];
   });
 
-  /** 모집글 목록 (검색/필터/정렬/페이지) */
+  /** 모집글 목록 */
   mock.onGet(/\/posts$/).reply(config => {
     const p = config.params || {};
     const q = String(p.q ?? "").toLowerCase();
     const si = String(p.si ?? "");
     const gu = String(p.gu ?? "");
-    const exp = String(p.exp ?? ""); // 구형 필드 호환용
-    const expType = String(p.expType ?? ""); // 신형 필드
+    const exp = String(p.exp ?? ""); // 구형 파라미터
+    const expType = String(p.expType ?? ""); // 신형 파라미터
     const minYearsMin = Number.isFinite(Number(p.minYearsMin)) ? Number(p.minYearsMin) : undefined;
     const role = String(p.role ?? "");
     const skills = parseSkills(p.skills);
@@ -99,7 +99,7 @@ export default function setupMock(api: AxiosInstance) {
 
     let list = posts.slice();
 
-    // 검색어
+    // 검색
     if (q) {
       list = list.filter(x =>
         (x.title || "").toLowerCase().includes(q) ||
@@ -109,11 +109,9 @@ export default function setupMock(api: AxiosInstance) {
       );
     }
 
-    // 지역: 빈 객체 {} 는 '전국'
+    // 지역
     if (si) {
-      if (si === "전체" || si === "전체(전국)") {
-        // 전국: 필터 없음
-      } else {
+      if (!(si === "전체" || si === "전체(전국)")) {
         list = list.filter(x => x.region && x.region.si === si);
       }
     }
@@ -122,28 +120,26 @@ export default function setupMock(api: AxiosInstance) {
     // 직무
     if (role) list = list.filter(x => (x.role || "").includes(role));
 
-    // 기술 태그 (AND)
+    // 기술 태그
     if (skills.length) list = list.filter(x => skills.every(s => (x.skills || []).includes(s)));
 
-    // 경력 필터 (신·경·무관 + 최소년수)
+    // 경력 필터
     if (expType) {
-      list = list.filter(x => (x.expType ?? x.exp) === expType);
+      list = list.filter(x => x.expType === expType);
     } else if (exp) {
-      // 과거 쿼리(exp) 호환
-      list = list.filter(x => (x.expType ?? x.exp) === exp);
+      // 옛날 파라미터(exp) 호환
+      list = list.filter(x => x.expType === exp);
     }
     if (typeof minYearsMin === "number" && !Number.isNaN(minYearsMin)) {
       list = list.filter(x => {
-        const t = (x as any).expType ?? (x as any).exp;
-        if (t !== "경력") return false;
-        const my = Number((x as any).minYears ?? 0);
+        if (x.expType !== "경력") return false;
+        const my = Number(x.minYears ?? 0);
         return my >= minYearsMin;
       });
     }
 
     // 정렬
-    if (sort === "popular") list = list.slice().reverse(); // 간단 인기순
-    // latest 는 기본 배열 순서(최근 추가가 앞에 오도록) 유지
+    if (sort === "popular") list = list.slice().reverse();
 
     const { items, total } = paginate(list, page, limit);
     return [200, { items, total }];
@@ -163,7 +159,7 @@ export default function setupMock(api: AxiosInstance) {
     const item = {
       id,
       title: String(body.title ?? "제목 없음"),
-      region: (body.region ?? {}) as Region,      // 전체(전국)인 경우 {}
+      region: (body.region ?? {}) as Region,
       author: "나",
       expType: (body.expType as "신입"|"경력"|"무관") ?? (body.exp ?? "무관"),
       minYears: body.minYears ?? null,
@@ -173,7 +169,6 @@ export default function setupMock(api: AxiosInstance) {
       description: String(body.description ?? ""),
       deadline: body.alwaysOpen ? null : (body.deadline ?? null),
       alwaysOpen: Boolean(body.alwaysOpen),
-      // createdAt 같은 필드가 필요하면 여기에 추가
     };
     posts.unshift(item as any);
     return [200, { id }];

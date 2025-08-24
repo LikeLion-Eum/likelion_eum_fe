@@ -1,4 +1,3 @@
-// src/pages/Home.tsx
 import { Link } from "react-router-dom";
 import { useEffect, useMemo, useState } from "react";
 import ImageSlider from "@/components/ImageSlider";
@@ -13,8 +12,8 @@ type Post = {
   title: string;
   region?: { si?: string; gu?: string };
   author?: string;
-  exp?: string;        // 구형
-  expType?: string;    // 신형
+  exp?: string;
+  expType?: string;
   minYears?: number | null;
   skills?: string[];
   deadline?: string | null;
@@ -25,8 +24,8 @@ type Program = {
   id: string;
   title: string;
   provider?: string;
-  deadline?: string | null;   // yyyy-mm-dd
-  deadlineAt?: string;        // 혹시 다른 키로 내려와도 대응
+  deadline?: string | null;
+  deadlineAt?: string;
 };
 
 /* ---------- 폴백(데모) 데이터 ---------- */
@@ -82,7 +81,6 @@ const ddayBadge = (deadline?: string | null, alwaysOpen?: boolean) => {
 };
 
 const ProgramDday = ({ p }: { p: Program }) => {
-  // 서버가 문자열 "D-3" 처럼 내려줄 수도 있어 폴백 처리
   if (p.deadlineAt?.startsWith?.("D-") || p.deadlineAt === "D-Day") {
     return <span className="rounded-full bg-black/80 px-2 py-0.5 text-xs text-white">{p.deadlineAt}</span>;
   }
@@ -135,16 +133,78 @@ export default function Home() {
     (async () => {
       try {
         setApiFailed(false);
-        const [p1, p2] = await Promise.all([
-          // ✅ 우리 mock 기준: /posts, /programs
-          api.get("/posts", { params: { page: 1, limit: 6, sort: "latest" } }),
-          api.get("/programs", { params: { page: 1, limit: 6, sort: "deadline" } }),
-        ]);
-        setPostsRaw(p1?.data ?? p1);
-        setProgsRaw(p2?.data ?? p2);
+
+        /* ---------- 1) 최신 모집글(3) ---------- */
+        const postsRes =
+          await api.get("/api/recruitments/search", {
+            params: { q: "", page: 0, size: 3, sort: "createdAt,desc" },
+          }).catch(() => api.get("/api/recruitments/list"));
+
+        const rawPosts = Array.isArray(postsRes?.data?.content)
+          ? postsRes.data.content
+          : Array.isArray(postsRes?.data)
+          ? postsRes.data
+          : [];
+
+        const mappedPosts: Post[] = rawPosts.slice(0, 3).map((r: any) => {
+          const locStr = (r.location || r.region || "").toString().trim();
+          const [si, gu] = locStr ? locStr.split(/\s+/, 2) : [undefined, undefined];
+          return {
+            id: String(r.id ?? r.postId ?? r.recruitmentId ?? Math.random()),
+            title: r.title ?? r.name ?? "(제목 없음)",
+            region: { si, gu },
+            author: r.authorName ?? r.author ?? r.host ?? r.creator ?? undefined,
+            expType: r.expType ?? r.careerType ?? (r.minYears ? "경력" : "무관"),
+            minYears: r.minYears ?? null,
+            deadline: r.deadline ?? r.deadlineDate ?? r.receiptEndDate ?? null,
+            alwaysOpen: r.alwaysOpen ?? false,
+          };
+        });
+
+        /* ---------- 2) 마감 임박 지원사업(6) ---------- */
+        let rawProgs: any[] = [];
+
+        try {
+          const pr1 = await api.get("/api/incubation-centers/search", {
+            params: { keyword: "", recruiting: true, page: 0, size: 6, sort: "receiptEndDate,asc" },
+          });
+          rawProgs = pr1.data?.content ?? pr1.data ?? [];
+          if (!rawProgs.length) throw new Error("empty");
+        } catch {
+          try {
+            const pr2 = await api.get("/api/incubation-centers/search", {
+              params: { q: "", recruiting: true, page: 0, size: 6, sort: "receiptEndDate,asc" },
+            });
+            rawProgs = pr2.data?.content ?? pr2.data ?? [];
+            if (!rawProgs.length) throw new Error("empty-legacy");
+          } catch {
+            const pr3 = await api.get("/api/incubation-centers");
+            rawProgs = pr3.data?.content ?? pr3.data ?? [];
+          }
+        }
+
+        rawProgs = (rawProgs ?? [])
+          .slice()
+          .sort((a: any, b: any) => {
+            const ad = new Date(a?.receiptEndDate ?? a?.deadline ?? "9999-12-31").getTime();
+            const bd = new Date(b?.receiptEndDate ?? b?.deadline ?? "9999-12-31").getTime();
+            return ad - bd;
+          })
+          .slice(0, 6);
+
+        const mappedProgs: Program[] = rawProgs.map((p: any) => ({
+          id: String(p.id ?? p.programId ?? Math.random()),
+          title: p.title ?? "(제목 없음)",
+          provider: p.provider ?? p.region ?? p.supportField ?? "",
+          deadline: p.receiptEndDate ?? p.deadline ?? null,
+          deadlineAt: undefined,
+        }));
+
+        setPostsRaw(mappedPosts);
+        setProgsRaw(mappedProgs);
       } catch (e) {
         console.error("홈 데이터 로드 실패:", e);
-        setPostsRaw(FALLBACK_POSTS);
+        setPostsRaw(FALLBACK_POSTS.slice(0, 3));
         setProgsRaw(FALLBACK_PROGRAMS);
         setApiFailed(true);
       } finally {
@@ -240,10 +300,10 @@ export default function Home() {
       </div>
 
       {/* 5) 최신 모집글 */}
-      <Section title="최신 모집글" desc="방금 올라온 팀을 먼저 만나보세요" moreHref="/teams">
+      <Section title="최신 모집글" desc="방금 올라온 팀을 먼저 만나보세요" moreHref="/recruitments">
         {loading ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 3 }).map((_, i) => (
               <div key={i} className="rounded-2xl border border-[var(--c-card-border)] bg-white p-4">
                 <div className="skeleton h-5 w-3/4" />
                 <div className="mt-3 flex gap-2">
@@ -256,26 +316,24 @@ export default function Home() {
           </div>
         ) : (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {posts.map((p) => (
-              <article
-                key={p.id}
-                className="flex h-56 flex-col justify-between rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md"
-              >
-                <div>
-                  <Link to={`/teams/${p.id}`} className="no-underline">
-                    <h3 className="mb-2 line-clamp-2 text-base font-semibold text-[var(--c-text)] hover:brand">{p.title}</h3>
-                  </Link>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs muted">
-                    <span>📍 {fmtRegion(p.region)}</span>
-                    <span>👤 {p.author ?? "-"}</span>
-                    <span>🏷 {fmtExp(p)}</span>
+            {posts.slice(0, 3).map((p) => (
+              <Link key={p.id} to={`/recruitments/${p.id}`} className="no-underline">
+                <article className="flex h-56 cursor-pointer flex-col justify-between rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md">
+                  <div>
+                    <h3 className="mb-2 line-clamp-2 text-base font-semibold text-[var(--c-text)] hover:brand">
+                      {p.title}
+                    </h3>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs muted">
+                      <span>📍 {fmtRegion(p.region)}</span>
+                      <span>👤 {p.author ?? "-"}</span>
+                      <span>🏷 {fmtExp(p)}</span>
+                    </div>
                   </div>
-                </div>
-                {/* 마감 뱃지 */}
-                <div className="mt-3 flex items-center justify-end">
-                  {ddayBadge(p.deadline ?? undefined, p.alwaysOpen)}
-                </div>
-              </article>
+                  <div className="mt-3 flex items-center justify-end">
+                    {ddayBadge(p.deadline ?? undefined, p.alwaysOpen)}
+                  </div>
+                </article>
+              </Link>
             ))}
             {posts.length === 0 && <div className="muted">표시할 모집글이 없습니다.</div>}
           </div>
@@ -283,8 +341,13 @@ export default function Home() {
         {apiFailed && <p className="mt-2 text-xs text-amber-600">실시간 데이터를 불러오지 못해 예시 데이터를 표시하고 있어요.</p>}
       </Section>
 
-      {/* 6) 광고 배너 */}
-      <AdBanner href="https://example.com/ads1" imageUrl="/banners/banner-wide-1.jpg" className="w-full" />
+      {/* 6) 광고 배너 — public/banners/adbanner.jpg 사용 */}
+      <AdBanner
+        href="#"
+        imageUrl="/banners/adbanner.jpg"
+        className="w-full"
+        height={180}
+      />
 
       {/* 7) 마감 임박 지원사업 */}
       <Section title="마감 임박 지원사업" desc="오늘 놓치면 아쉬운 혜택" moreHref="/programs">
@@ -318,10 +381,10 @@ export default function Home() {
         {apiFailed && <p className="mt-2 text-xs text-amber-600">실시간 데이터를 불러오지 못해 예시 데이터를 표시하고 있어요.</p>}
       </Section>
 
-      {/* 8) 하단 광고 & CTA */}
+      {/* 8) 하단 광고 & CTA — 같은 배너 이미지 재사용 */}
       <div className="grid gap-4 md:grid-cols-3">
-        <AdBanner href="https://example.com/ads2" imageUrl="/banners/banner-card-1.jpg" />
-        <AdBanner href="https://example.com/ads3" imageUrl="/banners/banner-card-2.jpg" />
+        <AdBanner href="#" imageUrl="/banners/adbanner.jpg" />
+        <AdBanner href="#" imageUrl="/banners/adbanner.jpg" />
         <div className="card glass flex flex-col justify-center">
           <h3 className="text-lg font-semibold">지금 시작해 보세요</h3>
           <p className="muted mt-1 text-sm">모집글 작성, 공간 등록, 이력서 업로드까지 한 번에</p>

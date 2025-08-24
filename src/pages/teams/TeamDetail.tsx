@@ -53,7 +53,7 @@ export default function TeamDetail() {
     const e = await fetchRecruitmentContact(item.id); // 백엔드 준비되면 사용
     setEmailLoading(false);
     if (e) {
-      setEmail(e);
+      setEmail(e.email);   // ✅ 수정: 객체에서 email 속성만 추출
       setShowEmail(true);
     } else {
       alert("작성자 이메일 정보를 준비 중입니다.");

@@ -13,7 +13,15 @@ type Office = {
   size?: number;           // ㎡
   location: string;        // 주소
   maxCount?: number;       // 최대 수용
-  monthlyPrice?: number;   // 서버가 제공하면 표시
+  monthlyPrice?: number;   // 서버가 제공하면 표시(표시만, 필터 X)
+};
+
+type PageResp<T> = {
+  content: T[];
+  totalPages: number;
+  totalElements: number;
+  number: number;
+  size: number;
 };
 
 /** KRW 포맷 */
@@ -40,31 +48,65 @@ function CardSkeleton() {
   );
 }
 
+/** 서버 DTO → Office 매핑 (feeMonthly/pricePerMonth/monthlyPrice 호환 표시용) */
+const mapOffice = (o: any): Office => ({
+  id: o.id,
+  name: o.name,
+  description: o.description,
+  roomCount: o.roomCount,
+  size: o.size,
+  location: o.location,
+  maxCount: o.maxCount,
+  monthlyPrice:
+    typeof o.monthlyPrice === "number"
+      ? o.monthlyPrice
+      : typeof o.pricePerMonth === "number"
+      ? o.pricePerMonth
+      : typeof o.feeMonthly === "number"
+      ? o.feeMonthly
+      : undefined,
+});
+
 export default function SpaceList() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
   const [items, setItems] = useState<Office[]>([]);
   const [thumbs, setThumbs] = useState<Record<number, string>>({}); // id → url
 
-  // 간단 검색/필터 (지역 키워드, 최소/최대 가격)
+  // 검색(지역/주소 키워드만 유지)
   const [qRegion, setQRegion] = useState("");
-  const [minPrice, setMinPrice] = useState<string>("");
-  const [maxPrice, setMaxPrice] = useState<string>("");
 
-  // 서버에서 전체 목록 가져오기
+  /** 서버에서 목록 가져오기(키워드만) */
+  async function fetchList() {
+    try {
+      setLoading(true);
+      setErr("");
+
+      const params: Record<string, any> = { page: 1, size: 60 };
+      const kw = qRegion.trim();
+      if (kw) params.keyword = kw;
+
+      const { data } = await api.get("/api/shared-offices", { params });
+
+      // 배열 or 페이지 형태 모두 처리
+      const list: any[] = Array.isArray(data)
+        ? data
+        : Array.isArray((data as PageResp<any>)?.content)
+        ? (data as PageResp<any>).content
+        : [];
+
+      setItems(list.map(mapOffice));
+    } catch (e: any) {
+      setErr(e?.response?.data?.error || e?.message || "목록을 불러오지 못했습니다.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 처음 로드 시 호출
   useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setErr("");
-        const { data } = await api.get<Office[]>("/shared-offices");
-        setItems(Array.isArray(data) ? data : []);
-      } catch (e: any) {
-        setErr(e?.response?.data?.error || e?.message || "목록을 불러오지 못했습니다.");
-      } finally {
-        setLoading(false);
-      }
-    })();
+    fetchList();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 각 오피스의 대표 사진(또는 첫 장)을 비동기로 수집
@@ -93,22 +135,18 @@ export default function SpaceList() {
     };
   }, [items]);
 
-  // 클라이언트 측 간단 필터링 (서버 필터 API가 생기면 교체)
+  // (보조) 클라이언트 측 주소 키워드 필터
   const filtered = useMemo(() => {
-    let list = items.slice();
+    if (!qRegion.trim()) return items;
+    const s = qRegion.trim();
+    return items.filter((o) => (o.location || "").includes(s));
+  }, [items, qRegion]);
 
-    if (qRegion.trim()) {
-      const s = qRegion.trim();
-      list = list.filter((o) => (o.location || "").includes(s));
-    }
-
-    const minP = minPrice ? parseInt(minPrice, 10) : null;
-    const maxP = maxPrice ? parseInt(maxPrice, 10) : null;
-    if (minP != null) list = list.filter((o) => (o.monthlyPrice ?? Number.MAX_SAFE_INTEGER) >= minP);
-    if (maxP != null) list = list.filter((o) => (o.monthlyPrice ?? 0) <= maxP);
-
-    return list;
-  }, [items, qRegion, minPrice, maxPrice]);
+  // 검색 제출
+  const onSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchList();
+  };
 
   return (
     <section className="grid gap-6">
@@ -124,10 +162,10 @@ export default function SpaceList() {
           </Link>
         </div>
 
-        {/* 검색/필터 바 */}
+        {/* 검색바 (월요금 입력 제거) */}
         <form
-          onSubmit={(e) => e.preventDefault()}
-          className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto_auto] md:items-center"
+          onSubmit={onSubmit}
+          className="mt-4 grid gap-2 md:grid-cols-[1fr_auto] md:items-center"
         >
           <input
             value={qRegion}
@@ -135,30 +173,7 @@ export default function SpaceList() {
             placeholder="지역/주소로 검색 (예: 서울 강남구, 아산시)"
             className="h-11 rounded-xl border border-[var(--c-card-border)] bg-white px-4 text-sm placeholder:muted focus:outline-none focus:ring-2 focus:ring-[var(--c-brand)]"
           />
-          <div className="flex items-center justify-between gap-2">
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={10000}
-              value={minPrice}
-              onChange={(e) => setMinPrice(e.target.value)}
-              placeholder="최소 월요금"
-              className="h-11 w-36 rounded-xl border border-[var(--c-card-border)] bg-white px-3 text-sm"
-            />
-            <span className="muted text-xs">~</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={10000}
-              value={maxPrice}
-              onChange={(e) => setMaxPrice(e.target.value)}
-              placeholder="최대 월요금"
-              className="h-11 w-36 rounded-xl border border-[var(--c-card-border)] bg-white px-3 text-sm"
-            />
-          </div>
-          <Button className="h-11">검색</Button>
+          <Button className="h-11" type="submit">검색</Button>
         </form>
       </div>
 
@@ -174,7 +189,7 @@ export default function SpaceList() {
       ) : filtered.length === 0 ? (
         <div className="rounded-2xl border border-[var(--c-card-border)] bg-white p-8 text-center">
           <div className="text-sm">표시할 공간이 없습니다.</div>
-          <div className="muted mt-2 text-xs">검색어/가격 범위를 조정해 보세요.</div>
+          <div className="muted mt-2 text-xs">검색어를 조정해 보세요.</div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -201,7 +216,7 @@ export default function SpaceList() {
                     </div>
                   )}
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/25 to-transparent opacity-80" />
-                  {/* 가격 배지 */}
+                  {/* 가격 배지(표시만) */}
                   <div className="absolute bottom-2 right-2 rounded-md bg-white/90 px-2 py-0.5 text-xs font-medium shadow-sm">
                     {price}
                   </div>

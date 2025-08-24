@@ -1,7 +1,8 @@
 import axios from "axios";
 
+// 👉 환경변수 안쓰고 서버 주소 고정
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE,
+  baseURL: "http://13.124.230.207",  // ✅ 백엔드 주소 + /api
   withCredentials: false,
   headers: {
     "Content-Type": "application/json",
@@ -10,6 +11,7 @@ const api = axios.create({
   },
 });
 
+// 응답 인터셉터
 api.interceptors.response.use(
   (res) => res,
   (err) => {

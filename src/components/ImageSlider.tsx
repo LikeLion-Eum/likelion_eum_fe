@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 
-export type ImageSlide = { id: string | number; src: string; alt?: string; href?: string };
+// ✅ captionTitle, captionText 추가
+export type ImageSlide = { 
+  id: string | number; 
+  src: string; 
+  alt?: string; 
+  href?: string;
+  captionTitle?: string;
+  captionText?: string;
+};
 
 export default function ImageSlider({
   slides,
@@ -13,17 +21,20 @@ export default function ImageSlider({
   className?: string;
   heightClass?: string;
   rounded?: string;
-  autoplayMs?: number; // 0이면 자동재생 끔
+  autoplayMs?: number;
 }) {
   const [i, setI] = useState(0);
-  const t = useRef<number | null>(null);
+  const t = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const go = (n: number) => setI(((n % slides.length) + slides.length) % slides.length);
 
   useEffect(() => {
     if (!autoplayMs || slides.length <= 1) return;
-    t.current && clearInterval(t.current);
-    t.current = window.setInterval(() => go(i + 1), autoplayMs);
-    return () => t.current && clearInterval(t.current);
+    if (t.current) clearInterval(t.current);
+    t.current = setInterval(() => go(i + 1), autoplayMs);
+    return () => {
+      if (t.current) clearInterval(t.current);
+    };
   }, [i, autoplayMs, slides.length]);
 
   if (!slides?.length) return null;
@@ -39,10 +50,22 @@ export default function ImageSlider({
     />
   );
 
+  const cur = slides[i];
+
   const frame = (
     <div className={`relative overflow-hidden ${rounded} ${className}`}>
       <div className={`relative w-full ${heightClass}`}>
-        {slides.map((s, idx) => <Img key={s.id} s={s} active={idx === i} />)}
+        {slides.map((s, idx) => (
+          <Img key={s.id} s={s} active={idx === i} />
+        ))}
+
+        {/* ✅ 캡션 표시 */}
+        {(cur.captionTitle || cur.captionText) && (
+          <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-center text-white drop-shadow-md">
+            {cur.captionTitle && <h3 className="text-lg font-bold">{cur.captionTitle}</h3>}
+            {cur.captionText && <p className="text-sm mt-1">{cur.captionText}</p>}
+          </div>
+        )}
       </div>
 
       {slides.length > 1 && (
@@ -64,6 +87,5 @@ export default function ImageSlider({
     </div>
   );
 
-  const cur = slides[i];
   return cur.href ? <a href={cur.href} className="block no-underline">{frame}</a> : frame;
 }

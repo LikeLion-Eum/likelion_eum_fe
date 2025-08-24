@@ -1,19 +1,24 @@
+// src/pages/AiRecommend.tsx
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+
+import { useToast } from "@/components/ToastHost";
+import Button from "@/components/Button";
+
 import { Recruitment, fetchRecruitmentsList } from "@/services/recruitment";
 import {
   recommendTalentsByRecruitment,
   TalentCandidate,
+  recommendIncubationCenters,
+  IncubationRec,
 } from "@/services/ai";
 import {
   recommendSharedOfficesByRegion,
   SharedOffice,
 } from "@/services/sharedOffice";
-import { recommendPrograms, IncubationProgram } from "@/services/programs";
-import { useToast } from "@/components/ToastHost";
-import Button from "@/components/Button";
-import { Link } from "react-router-dom";
+import { sendLoveCall } from "@/services/lovecall";
 
-/* '서울 강남구 역삼동' -> '서울 강남구' (API는 2단계 지역을 기대) */
+/* '서울 강남구 역삼동' -> '서울 강남구' (AI/추천 API는 2단계 지역을 기대) */
 function toSiGu(loc?: string | null) {
   if (!loc) return "";
   const bits = loc.split(/\s+/).filter(Boolean);
@@ -54,6 +59,144 @@ function Thumb({ alt }: { alt: string }) {
   );
 }
 
+/* 인재 카드 */
+function CandidateCard({
+  cand,
+  onLoveCall,
+}: {
+  cand: TalentCandidate;
+  onLoveCall: (c: TalentCandidate) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <article className="rounded-xl border border-[var(--c-card-border)] p-4 shadow-sm transition hover:shadow-md">
+      <div className="flex items-center justify-between">
+        <div className="font-semibold">{cand.name}</div>
+        <span className="text-xs rounded-full bg-[var(--c-brand)]/10 px-2 py-0.5 text-[var(--c-brand)]">
+          #{cand.rank}
+        </span>
+      </div>
+      <p className="muted text-xs mt-0.5">{cand.career}</p>
+
+      <div className="mt-2 flex flex-wrap gap-2">
+        {cand.main_skills?.map((s, i) => (
+          <span key={i} className="badge">#{s}</span>
+        ))}
+      </div>
+
+      {cand.reason && (
+        <div className="mt-2">
+          <div className="relative">
+            <p className={`muted text-sm whitespace-pre-line break-words ${open ? "" : "line-clamp-3"}`}>
+              {cand.reason}
+            </p>
+            {!open && (
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-white to-white/0" />
+            )}
+          </div>
+
+          <button
+            className="mt-1 text-xs underline text-gray-600"
+            onClick={() => setOpen((v) => !v)}
+          >
+            {open ? "이유 접기" : "이유 더보기"}
+          </button>
+        </div>
+      )}
+
+      <div className="mt-3">
+        <Button variant="outline" onClick={() => onLoveCall(cand)} size="sm">
+          러브콜 보내기
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+/* 상태 Pill (지원사업) */
+function StatusPill({ status }: { status: IncubationRec["status"] }) {
+  const cls =
+    status === "ongoing"
+      ? "bg-blue-50 text-blue-600"
+      : status === "closed"
+      ? "bg-red-50 text-red-600"
+      : status === "always"
+      ? "bg-green-50 text-green-600"
+      : "bg-gray-50 text-gray-500";
+  const label =
+    status === "ongoing"
+      ? "접수중"
+      : status === "closed"
+      ? "종료"
+      : status === "always"
+      ? "상시"
+      : "정보없음";
+  return (
+    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs ${cls}`}>
+      {label}
+    </span>
+  );
+}
+
+/* 지원사업 카드 */
+function IncubationCard({ item }: { item: IncubationRec }) {
+  const [open, setOpen] = useState(false);
+  const clickable = !!item.url;
+  const Tag: any = clickable ? "a" : "div";
+  const tagProps = clickable
+    ? { href: item.url!, target: "_blank", rel: "noopener noreferrer" }
+    : {};
+  return (
+    <li className="rounded-xl border border-[var(--c-card-border)] p-3 transition hover:shadow-md">
+      <Tag
+        {...tagProps}
+        className={`font-medium ${clickable ? "hover:underline" : "opacity-70 cursor-not-allowed"}`}
+        onClick={(e: any) => {
+          if (!clickable) e.preventDefault();
+        }}
+      >
+        {item.title}
+      </Tag>
+
+      <div className="muted text-xs mt-1">
+        {item.region} · {item.supportField}
+      </div>
+
+      <div className="mt-1 flex items-center gap-2 text-xs">
+        <StatusPill status={item.status} />
+        <span className="muted">{item.statusText}</span>
+      </div>
+
+      {item.reason && (
+        <div className="mt-2 text-sm text-gray-700">
+          <button className="underline text-gray-600 mb-1" onClick={() => setOpen((v) => !v)}>
+            {open ? "이유 닫기" : "왜 추천했나요?"}
+          </button>
+          {open ? (
+            <p className="whitespace-pre-line">{item.reason}</p>
+          ) : (
+            <p className="line-clamp-2">{item.reason}</p>
+          )}
+        </div>
+      )}
+
+      {clickable && (
+        <div className="mt-2">
+          <a
+            className="inline-block text-[var(--c-brand)] underline text-sm"
+            href={item.url!}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            공고 보기
+          </a>
+        </div>
+      )}
+    </li>
+  );
+}
+
 export default function AiRecommend() {
   const toast = useToast();
 
@@ -64,7 +207,7 @@ export default function AiRecommend() {
 
   // 무료 추천
   const [offices, setOffices] = useState<SharedOffice[] | null>(null);
-  const [progs, setProgs] = useState<IncubationProgram[] | null>(null);
+  const [incubs, setIncubs] = useState<IncubationRec[] | null>(null);
   const [freeLoading, setFreeLoading] = useState(false);
 
   // 유료 추천(인재)
@@ -91,7 +234,7 @@ export default function AiRecommend() {
     })();
   }, []);
 
-  /** 무료 추천: 공유오피스(전용 API) + 지원사업 (각 3개) */
+  /** 무료 추천: 공유오피스 + 지원사업(AI 정규화) 각 3개 */
   const fetchFree = async () => {
     if (!selected) return;
     try {
@@ -99,9 +242,8 @@ export default function AiRecommend() {
 
       const loc2 = toSiGu(selected.location ?? "");
       const [officeList, programs] = await Promise.all([
-        // ✅ 전용 추천 API 사용 (POST /api/shared-offices/recommend { location })
         loc2 ? recommendSharedOfficesByRegion(loc2) : Promise.resolve([]),
-        recommendPrograms({
+        recommendIncubationCenters({
           title: selected.title,
           location: selected.location ?? "",
           position: selected.position ?? "",
@@ -111,8 +253,8 @@ export default function AiRecommend() {
         }),
       ]);
 
-      setOffices((officeList ?? []).slice(0, 3)); // 공유오피스 3개
-      setProgs((programs ?? []).slice(0, 3)); // 지원사업 3개
+      setOffices((officeList ?? []).slice(0, 3));
+      setIncubs((programs ?? []).slice(0, 3));
       toast.success("무료 추천을 불러왔어요.");
     } catch {
       toast.error("추천을 불러올 수 없어요.");
@@ -126,9 +268,8 @@ export default function AiRecommend() {
     if (!selected) return;
     try {
       setPaying(true);
-      await new Promise((res) => setTimeout(res, 900)); // 결제 모킹
+      await new Promise((res) => setTimeout(res, 600)); // 간단 모킹
 
-      // ✅ id 포함 + toSiGu 적용 + flat body에 맞춤
       const list = await recommendTalentsByRecruitment({
         id: selected.id,
         title: selected.title,
@@ -139,7 +280,7 @@ export default function AiRecommend() {
         content: selected.content ?? "",
       });
 
-      setCandidates((list ?? []).slice(0, 3)); // 인재 3명
+      setCandidates((list ?? []).slice(0, 3));
       toast.success("AI 인재 3명을 추천했어요!");
     } catch (e: any) {
       const msg =
@@ -154,18 +295,52 @@ export default function AiRecommend() {
     }
   };
 
+  /** 러브콜 전송 – 실제 POST 호출 */
   const onSendLoveCall = async (cand: TalentCandidate) => {
-    if (!selected) return;
-    const message = prompt(`"${cand.name}" 님에게 보낼 메시지 입력`);
-    if (!message) return;
-    try {
-      // TODO: 실제 연동 시 services/lovecall.sendLoveCall(...)
-      await new Promise((r) => setTimeout(r, 400)); // 데모
-      toast.success("러브콜을 보냈어요!");
-    } catch {
-      toast.error("러브콜 전송에 실패했어요.");
+  if (!selected) return;
+
+  const message = prompt(`"${cand.name}" 님에게 보낼 메시지 입력`);
+  if (!message) return;
+
+  try {
+    // AI 응답이 userId 또는 profileId 로 올 수 있으니 모두 대비
+    const recipient =
+      (cand as any).profileId ??
+      (cand as any).userId ??
+      (cand as any).profile_id;
+
+    if (!recipient) {
+      toast.error("후보의 수신자 ID(userId/profileId)를 찾을 수 없어요.");
+      console.log("[love-call] candidate object:", cand);
+      return;
     }
-  };
+
+    console.log("[love-call] send", {
+      recruitmentId: selected.id,
+      recipientId: recipient,
+      message,
+    });
+
+    await sendLoveCall({
+      recruitmentId: selected.id,
+      recipientId: recipient,
+      // 해커톤용: 고정 유저라면 senderId: 1 넣어도 됨
+      senderId: 1,
+      message,
+    });
+
+    toast.success("러브콜을 보냈어요!");
+  } catch (e: any) {
+    const msg =
+      e?.response?.data?.error ||
+      e?.response?.data?.message ||
+      (typeof e?.response?.data === "string" ? e.response.data : "") ||
+      e?.message ||
+      "러브콜 전송에 실패했어요.";
+    toast.error(msg);
+  }
+};
+
 
   if (loading) {
     return (
@@ -313,38 +488,16 @@ export default function AiRecommend() {
             </div>
           )}
 
-          {!freeLoading && (!progs || progs.length === 0) && (
+          {!freeLoading && (!incubs || incubs.length === 0) && (
             <p className="muted text-sm">
               추천 결과가 없습니다. 상단에서 <b>무료 추천 불러오기</b>를 눌러주세요.
             </p>
           )}
 
-          {!freeLoading && !!progs?.length && (
+          {!freeLoading && !!incubs?.length && (
             <ul className="grid gap-3">
-              {progs.map((p) => (
-                <li
-                  key={p.id}
-                  className="rounded-xl border border-[var(--c-card-border)] p-3 transition hover:shadow-md"
-                >
-                  <div className="font-medium">{p.title}</div>
-                  <div className="muted text-xs mt-1">
-                    {p.region ?? ""} · {p.supportField ?? ""}
-                  </div>
-                  <div className="muted text-xs mt-1">
-                    {p.receiptStartDate} ~ {p.receiptEndDate}
-                    {p.recruiting ? " · 모집중" : " · 종료"}
-                  </div>
-                  {!!p.applyUrl && (
-                    <a
-                      href={p.applyUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-2 inline-block text-[var(--c-brand)] underline"
-                    >
-                      공고 보기
-                    </a>
-                  )}
-                </li>
+              {incubs.map((p) => (
+                <IncubationCard key={`${p.title}-${p.endDateISO ?? p.endDateRaw ?? ""}`} item={p} />
               ))}
             </ul>
           )}
@@ -367,40 +520,14 @@ export default function AiRecommend() {
         {!!candidates?.length && (
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {candidates.map((c) => (
-              <article
-                key={c.rank}
-                className="rounded-xl border border-[var(--c-card-border)] p-4 shadow-sm transition hover:shadow-md"
-              >
-                <div className="flex items-center justify-between">
-                  <div className="font-semibold">{c.name}</div>
-                  <span className="text-xs rounded-full bg-[var(--c-brand)]/10 px-2 py-0.5 text-[var(--c-brand)]">
-                    #{c.rank}
-                  </span>
-                </div>
-                <p className="muted text-xs mt-0.5">{c.career}</p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {c.main_skills?.map((s, i) => (
-                    <span key={i} className="badge">
-                      #{s}
-                    </span>
-                  ))}
-                </div>
-                {c.reason && (
-                  <p className="muted text-sm mt-2 line-clamp-3">{c.reason}</p>
-                )}
-                <div className="mt-3">
-                  <Button variant="outline" onClick={() => onSendLoveCall(c)} size="sm">
-                    러브콜 보내기
-                  </Button>
-                </div>
-              </article>
+              <CandidateCard key={c.rank} cand={c} onLoveCall={onSendLoveCall} />
             ))}
           </div>
         )}
       </section>
 
       <p className="muted text-xs">
-        * 인재 추천은 데모 결제(₩500)로 모킹되어 있습니다. 실제 결제(토스/페이먼츠) 연동은 이후 단계에서 추가하세요. <br />
+        * 인재 추천은 데모 결제(₩500)로 모킹되어 있습니다. 실제 결제 연동은 이후 단계에서 추가하세요. <br />
         * 추천 품질은 제공한 모집글의 상세도에 비례합니다.
       </p>
     </div>

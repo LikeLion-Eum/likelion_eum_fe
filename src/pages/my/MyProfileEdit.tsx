@@ -71,7 +71,7 @@ export default function MyProfileEdit() {
     <div className="grid gap-6">
       <header className="rounded-2xl bg-white p-6 ring-1 ring-[var(--c-card-border)]">
         <h1 className="text-2xl font-bold">내 정보 관리</h1>
-        <p className="muted mt-1">이름·이메일·지역만 관리합니다. (항상 id=1만 수정)</p>
+        <p className="muted mt-1">이름·이메일·지역만 관리합니다.</p>
       </header>
 
       <section className="rounded-2xl border border-[var(--c-card-border)] bg-white p-6">

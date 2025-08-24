@@ -1,303 +1,225 @@
+// src/pages/programs/ProgramList.tsx
 import { useEffect, useMemo, useState } from "react";
-import Button from "@/components/Button";
-import { fetchProgramsList, IncubationProgram } from "@/services/programs";
+import api from "@/lib/api";
 
-const PAGE_SIZE = 12;
+type ProgramItem = {
+  id: number;
+  title: string;
+  region?: string;
+  supportField?: string;
+  receiptStartDate?: string;
+  receiptEndDate?: string;
+  recruiting?: boolean;
+  applyUrl?: string;
+};
 
-/* 날짜 → D-Day 계산 (종료: 음수) */
-function getDDay(end?: string) {
-  if (!end) return null;
-  const today = new Date(); today.setHours(0,0,0,0);
-  const ed = new Date(end); ed.setHours(0,0,0,0);
-  const diff = Math.round((ed.getTime() - today.getTime()) / 86400000);
-  if (diff > 0) return `D-${diff}`;
-  if (diff === 0) return "D-Day";
-  return "종료";
+type PageResp<T> = {
+  content: T[];
+  totalPages: number;
+  totalElements: number;
+  number: number; // 0-based
+  size: number;
+  first: boolean;
+  last: boolean;
+};
+
+const PAGE_SIZE = 18;
+
+function fmtDate(s?: string) {
+  if (!s) return "-";
+  const [y, m, d] = s.split("-");
+  return `${y}.${m}.${d}`;
 }
 
-/* 스켈레톤 */
-function CardSkeleton() {
+function Pagination({
+  page,           // 0-based
+  totalPages,
+  onChange,
+}: {
+  page: number;
+  totalPages: number;
+  onChange: (p: number) => void;
+}) {
+  if (totalPages <= 1) return null;
+
+  // 윈도우형 페이지 범위(1, ..., c-2 c-1 c c+1 c+2, ..., last)
+  const current = page + 1;       // 1-based
+  const last = totalPages;        // 1-based
+  const windowSize = 5;           // 현재 중심으로 최대 5개 표시
+  const start = Math.max(1, current - 2);
+  const end = Math.min(last, start + windowSize - 1);
+  const realStart = Math.max(1, end - windowSize + 1);
+
+  const nums: number[] = [];
+  for (let n = realStart; n <= end; n++) nums.push(n);
+
+  const Btn = ({
+    disabled,
+    children,
+    onClick,
+    active,
+  }: {
+    disabled?: boolean;
+    children: React.ReactNode;
+    onClick?: () => void;
+    active?: boolean;
+  }) => (
+    <button
+      disabled={disabled}
+      onClick={onClick}
+      className={
+        "min-w-9 h-9 px-3 rounded-xl border text-sm " +
+        (active
+          ? "bg-blue-600 text-white border-blue-600"
+          : "bg-white text-gray-700 border-gray-300 hover:bg-gray-50") +
+        (disabled ? " opacity-50 cursor-not-allowed" : "")
+      }
+    >
+      {children}
+    </button>
+  );
+
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--c-card-border)] bg-white shadow-sm">
-      <div className="skeleton h-24 w-full" />
-      <div className="grid gap-2 p-4">
-        <div className="skeleton h-5 w-3/4" />
-        <div className="skeleton h-4 w-1/2" />
-        <div className="skeleton h-4 w-2/3" />
-      </div>
+    <div className="mt-6 flex flex-wrap items-center gap-2 justify-center">
+      <Btn disabled={current === 1} onClick={() => onChange(0)}>{'«'}</Btn>
+      <Btn disabled={current === 1} onClick={() => onChange(page - 1)}>{'‹'}</Btn>
+
+      {realStart > 1 && (
+        <>
+          <Btn onClick={() => onChange(0)}>1</Btn>
+          {realStart > 2 && <span className="px-1 text-gray-400">…</span>}
+        </>
+      )}
+
+      {nums.map(n => (
+        <Btn key={n} active={n === current} onClick={() => onChange(n - 1)}>
+          {n}
+        </Btn>
+      ))}
+
+      {end < last && (
+        <>
+          {end < last - 1 && <span className="px-1 text-gray-400">…</span>}
+          <Btn onClick={() => onChange(last - 1)}>{last}</Btn>
+        </>
+      )}
+
+      <Btn disabled={current === last} onClick={() => onChange(page + 1)}>{'›'}</Btn>
+      <Btn disabled={current === last} onClick={() => onChange(last - 1)}>{'»'}</Btn>
     </div>
   );
 }
 
 export default function ProgramList() {
-  // 서버 데이터
-  const [programs, setPrograms] = useState<IncubationProgram[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState<string>("");
-
-  // 페이지네이션
-  const [page, setPage] = useState(1);
+  const [items, setItems] = useState<ProgramItem[]>([]);
+  const [page, setPage] = useState(0);              // 0-based
   const [totalPages, setTotalPages] = useState(0);
+  const [loading, setLoading] = useState(false);
 
-  // 검색/필터/정렬
-  const [q, setQ] = useState("");
-  const [recruiting, setRecruiting] = useState<"all" | "open" | "closed">("all");
-  const [sort, setSort] = useState<"deadlineAsc" | "deadlineDesc" | "titleAsc">("deadlineAsc");
+  // 필터 (필요 시 사용)
+  const [keyword, setKeyword] = useState("");
+  const [recruitingOnly, setRecruitingOnly] = useState<boolean | undefined>(undefined);
 
-  const sortParam = useMemo(() => {
-    switch (sort) {
-      case "deadlineDesc": return ["receiptEndDate,desc"];
-      case "titleAsc":     return ["title,asc"];
-      default:             return ["receiptEndDate,asc"]; // deadlineAsc
-    }
-  }, [sort]);
+  // 간단 디바운스(트림만)
+  const debouncedKeyword = useMemo(() => keyword.trim(), [keyword]);
 
-  const recruitingParam = useMemo(() => {
-    if (recruiting === "open") return true;
-    if (recruiting === "closed") return false;
-    return null; // all
-  }, [recruiting]);
-
-  async function load(p = page) {
+  async function fetchPage(p: number) {
+    setLoading(true);
     try {
-      setLoading(true);
-      setErr("");
-      const res = await fetchProgramsList(p, PAGE_SIZE, {
-        q,
-        recruiting: recruitingParam,
-        sort: sortParam,
-      });
-      setPrograms(res.content);
-      setTotalPages(res.totalPages ?? 0);
-    } catch (e: any) {
-      setErr(e?.response?.data?.error || e?.message || "목록을 불러오지 못했습니다.");
-      setPrograms([]);
-      setTotalPages(0);
+      const { data } = await api.get<PageResp<ProgramItem>>(
+        "/api/incubation-centers/search",
+        { params: { q: debouncedKeyword, recruiting: recruitingOnly, page: p, size: PAGE_SIZE } }
+      );
+
+      // 방어: content가 없으면 빈 배열
+      const content = Array.isArray((data as any)?.content) ? (data as any).content : [];
+      setItems(content);
+      setPage(data.number ?? p);
+      setTotalPages(data.totalPages ?? 0);
     } finally {
       setLoading(false);
     }
   }
 
-  // 최초 & 페이지 변경 시
-  useEffect(() => { load(page); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [page]);
-
-  // 검색 실행
-  const onSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    setPage(1);
-    load(1);
-  };
-
-  // 초기 로딩 UX 보강을 위한 정렬/상태 텍스트
-  const headerHint = useMemo(() => {
-    const rs = recruiting === "open" ? "모집중만" : recruiting === "closed" ? "종료만" : "전체";
-    const ss = sort === "deadlineAsc" ? "마감 임박 순" : sort === "deadlineDesc" ? "마감 늦은 순" : "제목 오름차순";
-    return `${rs} · ${ss}`;
-  }, [recruiting, sort]);
+  // 최초 & 필터 변경 시 0페이지로
+  useEffect(() => {
+    fetchPage(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedKeyword, recruitingOnly]);
 
   return (
-    <section className="grid gap-6">
-      {/* 헤더 + 검색바 */}
-      <div className="rounded-3xl border border-[var(--c-card-border)] bg-gradient-to-b from-white to-[var(--c-bg2)] p-6 shadow-sm">
-        <div className="flex flex-col items-start justify-between gap-3 md:flex-row md:items-center">
-          <div>
-            <h1 className="text-xl font-bold">지원사업·대회</h1>
-            <p className="muted mt-1 text-sm">키워드/모집여부/정렬을 설정해 빠르게 찾아보세요. ({headerHint})</p>
-          </div>
-        </div>
-
-        {/* 검색/필터 바 */}
-        <form onSubmit={onSearch} className="mt-4 grid gap-2 md:grid-cols-[1fr_auto_auto_auto] md:items-center">
+    <div className="mx-auto max-w-6xl px-4 py-6">
+      {/* 상단 필터 */}
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <input
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          placeholder="검색어 입력 (제목/분야/지역)"
+          className="w-full sm:w-96 rounded-xl border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-200"
+        />
+        <label className="inline-flex items-center gap-2 text-sm">
           <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="검색어 (제목/분야/지역/링크에서 부분 일치)"
-            className="h-11 rounded-xl border border-[var(--c-card-border)] bg-white px-4 text-sm placeholder:muted focus:outline-none focus:ring-2 focus:ring-[var(--c-brand)]"
+            type="checkbox"
+            checked={!!recruitingOnly}
+            onChange={(e) => setRecruitingOnly(e.target.checked ? true : undefined)}
           />
-
-          <select
-            value={recruiting}
-            onChange={(e) => setRecruiting(e.target.value as any)}
-            className="h-11 rounded-xl border border-[var(--c-card-border)] bg-white px-3 text-sm"
-          >
-            <option value="all">모집여부: 전체</option>
-            <option value="open">모집중만</option>
-            <option value="closed">모집종료만</option>
-          </select>
-
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as any)}
-            className="h-11 rounded-xl border border-[var(--c-card-border)] bg-white px-3 text-sm"
-          >
-            <option value="deadlineAsc">정렬: 마감 임박 순</option>
-            <option value="deadlineDesc">정렬: 마감 늦은 순</option>
-            <option value="titleAsc">정렬: 제목 A→Z</option>
-          </select>
-
-          <div className="flex gap-2">
-            <Button className="h-11">검색</Button>
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11"
-              onClick={() => { setQ(""); setRecruiting("all"); setSort("deadlineAsc"); setPage(1); load(1); }}
-            >
-              초기화
-            </Button>
-          </div>
-        </form>
+          모집중만 보기
+        </label>
       </div>
 
-      {/* 목록 */}
-      {loading ? (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {Array.from({ length: PAGE_SIZE }).map((_, i) => <CardSkeleton key={i} />)}
-        </div>
-      ) : err ? (
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-rose-900">{err}</div>
-      ) : programs.length === 0 ? (
-        <div className="rounded-2xl border border-[var(--c-card-border)] bg-white p-8 text-center">
-          <div className="text-sm">검색 결과가 없습니다.</div>
-          <div className="muted mt-2 text-xs">검색어/필터를 조정해 보세요.</div>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {programs.map((p) => {
-            const dday = getDDay(p.receiptEndDate);
-            const recruitingBadge = p.recruiting ? (
-              <span className="rounded bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700">모집중</span>
-            ) : (
-              <span className="rounded bg-rose-50 px-2 py-0.5 text-[11px] font-medium text-rose-700">종료</span>
-            );
-
-            return (
-              <article
-                key={p.id}
-                className="group overflow-hidden rounded-2xl border border-[var(--c-card-border)] bg-white p-4 shadow-sm transition hover:shadow-md"
+      {/* 카드 그리드 */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+        {items.map((it) => (
+          <a
+            key={it.id}
+            href={it.applyUrl || "#"}
+            target="_blank"
+            rel="noreferrer"
+            className="block rounded-2xl border border-gray-200 bg-white p-4 shadow-sm transition hover:border-gray-300 hover:shadow-md"
+          >
+            <div className="flex items-start gap-2">
+              <span
+                className={
+                  "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium " +
+                  (it.recruiting ? "bg-green-50 text-green-700" : "bg-gray-100 text-gray-500")
+                }
               >
-                <div className="mb-2 flex items-start justify-between gap-2">
-                  <h2 className="line-clamp-2 text-base font-semibold text-[var(--c-text)] group-hover:text-[var(--c-brand)]">
-                    {p.title}
-                  </h2>
-                  {dday && (
-                    <span
-                      className={`shrink-0 rounded px-2 py-0.5 text-[11px] font-semibold ${
-                        dday === "종료"
-                          ? "bg-rose-50 text-rose-700"
-                          : "bg-[var(--c-brand)]/10 text-[var(--c-brand)]"
-                      }`}
-                      title={p.receiptEndDate}
-                    >
-                      {dday}
-                    </span>
-                  )}
-                </div>
+                {it.recruiting ? "모집중" : "마감"}
+              </span>
+              {it.region && (
+                <span className="inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[11px] text-blue-700">
+                  {it.region}
+                </span>
+              )}
+            </div>
 
-                <div className="mb-2 flex flex-wrap items-center gap-2 text-[11px] text-[var(--c-muted)]">
-                  {p.region && (
-                    <span className="rounded border border-[var(--c-card-border)] bg-[var(--c-card-bg)] px-1.5 py-0.5">
-                      {p.region}
-                    </span>
-                  )}
-                  {p.supportField && (
-                    <span className="rounded border border-[var(--c-card-border)] bg-[var(--c-card-bg)] px-1.5 py-0.5">
-                      {p.supportField}
-                    </span>
-                  )}
-                  {recruitingBadge}
-                </div>
+            <h3 className="mt-3 text-base font-semibold leading-6 line-clamp-2">
+              {it.title}
+            </h3>
 
-                <div className="text-xs text-[var(--c-muted)]">
-                  {p.receiptStartDate || "-"} ~ {p.receiptEndDate || "-"}
-                </div>
+            {it.supportField && (
+              <p className="mt-1 text-xs text-gray-500 line-clamp-1">{it.supportField}</p>
+            )}
 
-                {p.applyUrl && (
-                  <a
-                    href={p.applyUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-3 inline-flex no-underline"
-                  >
-                    <Button variant="outline" className="h-9 text-sm">지원하기</Button>
-                  </a>
-                )}
-              </article>
-            );
-          })}
-        </div>
-      )}
+            <div className="mt-3 flex items-center justify-between text-sm text-gray-600">
+              <span>접수: {fmtDate(it.receiptStartDate)} ~ {fmtDate(it.receiptEndDate)}</span>
+              <span className="text-blue-600 hover:underline">바로가기</span>
+            </div>
+          </a>
+        ))}
 
-      {/* 페이지네이션 */}
+        {/* 로딩 스켈레톤 */}
+        {loading && Array.from({ length: 3 }).map((_, i) => (
+          <div key={`s-${i}`} className="h-32 rounded-2xl border border-gray-200 bg-gray-50 animate-pulse" />
+        ))}
+      </div>
+
+      {/* 숫자 페이지네이션 */}
       <Pagination
         page={page}
         totalPages={totalPages}
-        onChange={(p) => setPage(p)}
+        onChange={(p) => fetchPage(p)}
       />
-    </section>
-  );
-}
-
-/* --- 깔끔한 페이지네이션 --- */
-function Pagination({ page, totalPages, onChange }: { page: number; totalPages: number; onChange: (p: number) => void; }) {
-  if (!totalPages || totalPages <= 1) return null;
-
-  const nums = getPageNumbers(page, totalPages);
-
-  return (
-    <div className="mt-4 flex justify-center gap-2">
-      <button
-        onClick={() => onChange(Math.max(1, page - 1))}
-        disabled={page === 1}
-        className="rounded-lg border border-[var(--c-card-border)] bg-white px-3 py-1 text-sm disabled:opacity-50"
-      >
-        이전
-      </button>
-
-      {nums.map((n, i) =>
-        n === "…" ? (
-          <span key={`e-${i}`} className="px-2 text-sm text-[var(--c-muted)]">…</span>
-        ) : (
-          <button
-            key={n}
-            onClick={() => onChange(n as number)}
-            className={`rounded-lg px-3 py-1 text-sm ${
-              n === page
-                ? "bg-[var(--c-brand)] text-white"
-                : "border border-[var(--c-card-border)] bg-white"
-            }`}
-          >
-            {n}
-          </button>
-        )
-      )}
-
-      <button
-        onClick={() => onChange(Math.min(totalPages, page + 1))}
-        disabled={page === totalPages}
-        className="rounded-lg border border-[var(--c-card-border)] bg-white px-3 py-1 text-sm disabled:opacity-50"
-      >
-        다음
-      </button>
     </div>
   );
-}
-
-function getPageNumbers(cur: number, total: number) {
-  const out: (number | "…")[] = [];
-  const push = (n: number | "…") => out.push(n);
-  const range = (a: number, b: number) => { for (let i = a; i <= b; i++) push(i); };
-
-  if (total <= 7) { range(1, total); return out; }
-
-  const left = Math.max(2, cur - 1);
-  const right = Math.min(total - 1, cur + 1);
-
-  push(1);
-  if (left > 2) push("…");
-  range(left, right);
-  if (right < total - 1) push("…");
-  push(total);
-
-  return out;
 }

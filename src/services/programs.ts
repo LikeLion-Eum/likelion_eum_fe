@@ -24,9 +24,9 @@ export type PageEnvelope<T> = {
 
 export type PageResp<T> = PageEnvelope<T> | T[];
 
-/** 목록 조회 (페이지) – GET /api/incubation-centers */
+/** 목록 조회 (페이지) – GET /incubation-centers */
 export async function fetchProgramsList(page = 1, size = 12) {
-  const { data } = await api.get<PageResp<IncubationProgram>>("/incubation-centers", {
+  const { data } = await api.get<PageResp<IncubationProgram>>("/api/incubation-centers", {
     params: { page: Math.max(0, page - 1), size },
   });
 
@@ -43,7 +43,7 @@ export async function fetchProgramsList(page = 1, size = 12) {
   return data as PageEnvelope<IncubationProgram>;
 }
 
-/** 🔎 검색 – GET /api/incubation-centers/search?q=...&recruiting=... */
+/** 🔎 검색 – GET /incubation-centers/search?q=...&recruiting=... */
 export type ProgramSearchParams = {
   q: string;
   recruiting?: boolean;
@@ -54,7 +54,7 @@ export type ProgramSearchParams = {
 
 export async function searchPrograms(params: ProgramSearchParams) {
   const { q, recruiting, page = 1, size = 12, sort } = params;
-  const { data } = await api.get<PageEnvelope<IncubationProgram>>("/incubation-centers/search", {
+  const { data } = await api.get<PageEnvelope<IncubationProgram>>("/api/incubation-centers/search", {
     params: {
       q,
       recruiting,
@@ -62,12 +62,11 @@ export async function searchPrograms(params: ProgramSearchParams) {
       size,
       ...(sort ? { sort } : {}),
     },
-    // arrayFormat 등은 axios 인스턴스에서 설정해두면 복수 sort 전달가능
   });
   return data;
 }
 
-/** 🧠 추천(모집글 기반) – POST /api/recommendations/incubation-centers */
+/** 🧠 추천(모집글 기반) – POST /recommendations/incubation-centers */
 export type ProgramRecommendReq = {
   title: string;
   location: string;

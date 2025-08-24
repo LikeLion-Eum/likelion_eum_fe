@@ -19,7 +19,7 @@ const FIXED_USER_ID = 1;
 
 export async function fetchUser1(): Promise<UserProfile | null> {
   try {
-    const { data } = await api.get(`/users/${FIXED_USER_ID}`);
+    const { data } = await api.get(`/api/users/${FIXED_USER_ID}`);   // ✅ /api 붙임
     return data ?? null;
   } catch (e: any) {
     if (e?.response?.status === 404) return null;
@@ -28,7 +28,7 @@ export async function fetchUser1(): Promise<UserProfile | null> {
 }
 
 export async function updateUser1(payload: Partial<UserProfile>) {
-  // 서버가 PATCH 미지원이면 .put(`/users/${FIXED_USER_ID}`, payload)
-  const { data } = await api.patch(`/users/${FIXED_USER_ID}`, payload);
+  // 서버가 PATCH 미지원이면 .put(`/api/users/${FIXED_USER_ID}`, payload)
+  const { data } = await api.patch(`/api/users/${FIXED_USER_ID}`, payload);  // ✅ /api 붙임
   return data as UserProfile;
 }

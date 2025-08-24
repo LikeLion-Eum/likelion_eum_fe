@@ -20,7 +20,7 @@ type SharedOffice = {
   size?: number; // ㎡
   location: string; // 주소
   maxCount?: number;
-  pricePerMonth?: number;// 월 요금
+  feeMonthly?: number; // ✅ 월 요금 (백엔드/DB 필드와 일치)
 
   // 선택값(있으면 표시)
   landmark?: string; // 예: "강남역 도보 2분"

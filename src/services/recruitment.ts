@@ -23,55 +23,54 @@ export const CAREER_CODE = {
 } as const;
 
 export type RecruitListParams = {
-  page?: number;  // 1-based (백엔드가 0-based면 아래에서 보정)
+  page?: number;   // 1-based (백엔드가 0-based면 아래에서 보정 가능)
   size?: number;
   q?: string;
-  career?: number;   // 0=전체
+  career?: number; // 0=전체
   position?: string;
   minYears?: number;
 };
 
-/** 목록 */
+/** 📃 목록 – GET /api/recruitments */
 export async function fetchRecruitments(params: RecruitListParams = {}) {
-  const { data } = await api.get<Recruitment[]>("/recruitment/list", { params });
+  const { data } = await api.get<Recruitment[]>("/api/recruitments", { params });
   return data ?? [];
 }
 
-/** ✅ 호환용 alias: 과거 import 이름 유지 */
+/** ✅ 호환용 alias */
 export const fetchRecruitmentsList = fetchRecruitments;
 
-/** 단건 */
+/** 🔍 단건 – GET /api/recruitments/{id} */
 export async function fetchRecruitmentById(id: number | string) {
-  const { data } = await api.get<Recruitment>(`/recruitment/${id}`);
+  const { data } = await api.get<Recruitment>(`/api/recruitments/${id}`);
   return data;
 }
 
-/** 검색(AND 매칭 바디) – POST /api/recruitment/search */
+/** 🔎 검색 – POST /api/recruitments/search */
 export type RecruitSearchBody = {
   keywords?: string[];
   keyword?: string;
-  // targetSpaceType?: "shared_office" | "incubation_center";
 };
 
 export async function searchRecruitments(body: RecruitSearchBody) {
-  const { data } = await api.post<Recruitment[]>("/recruitment/search", body);
+  const { data } = await api.post<Recruitment[]>("/api/recruitments/search", body);
   return data ?? [];
 }
 
-/** 상세 */
+/** 📄 상세 – GET /api/recruitments/{id} */
 export async function fetchRecruitmentDetail(id: string | number) {
-  const { data } = await api.get<Recruitment>(`/recruitment/${id}`);
+  const { data } = await api.get<Recruitment>(`/api/recruitments/${id}`);
   return data;
 }
 
-/** 등록 – POST /api/recruitment */
+/** ✍ 등록 – POST /api/recruitments */
 export async function createRecruitment(payload: any) {
-  const { data } = await api.post("/recruitment", payload);
+  const { data } = await api.post("/api/recruitments", payload);
   return data;
 }
 
-/** 작성자 이메일 – GET /api/recruitment/{id}/contact  → { email: string } */
+/** 📧 작성자 이메일 – GET /api/recruitments/{id}/contact */
 export async function fetchRecruitmentContact(id: string | number) {
-  const { data } = await api.get<{ email: string }>(`/recruitment/${id}/contact`);
+  const { data } = await api.get<{ email: string }>(`/api/recruitments/${id}/contact`);
   return data;
 }
